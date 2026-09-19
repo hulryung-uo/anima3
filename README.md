@@ -77,6 +77,21 @@ the spectator monitor all work with both backends; terrain reading forced a
 direction change at a wall (walk north → walk east). Model decisions on the shard:
 10/10 admitted, 117 ms mean. See *Live fight* below.
 
+## Live fight (ServUO 127.0.0.1:2593, player-level account, Qwen backend, neutral disposition)
+
+A GM session (`anima3.gm --spawn Mongbat`) put a mongbat near the start point while a
+Player-level account (`anima3p`) played. Watched at `http://127.0.0.1:8802/`.
+
+- Names resolved by click-to-name: the scene went from *a creature* to **a mongbat** (t=38).
+- Approach worked on real terrain: far → near → close → **adjacent** (t=42–47), war mode on, attacking.
+- One mongbat was killed by a **town guard** at t=66 (*"Thou hast suffered thy punishment, scoundrel."*) — the start point is a guarded town; the next staging step is `[Set X/Y` the player outside the guard zone.
+- The other mongbat was **wounded** by our character from t=128; our HP never fell below 99% (a new character vs a mongbat).
+- {'ticks': 150, 'model_calls': 51, 'model_admitted': 48, 'dead': False, 'gold': 1000, 'min_hp_pct': 0.99, 'avg_decision_ms': 155.0, 'reasons': {'rule (deciding)': 5, 'admitted': 48, 'plan': 94, 'confidence 0.20 < 0.35': 2, 'confidence 0.23 < 0.35': 1}}
+
+Two live lessons that were not visible offline: `Attack{serial}` beyond one tile does
+nothing (hence approach-then-attack), and staff accounts are ignored by monster AI
+(hence the separate Player account for the agent — the same control ≠ play split anima2 kept).
+
 ## Layout
 
 | File | Role |
