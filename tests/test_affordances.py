@@ -118,3 +118,21 @@ def test_pacifist_being_hit_gets_flee_only():
     obs = w.observe()
     got = [a.id for a in enumerate_affordances(obs, facts(obs), Persona(name="G", combat_disposition="pacifist"), mem)]
     assert got == ["flee"]
+
+
+def test_hostile_on_another_level_is_not_targeted():
+    w = FakeBody(); m = w.add_hostile(1, 0)
+    from anima3.contract import Pos
+    m.pos = Pos(m.pos.x, m.pos.y, 20)      # twenty tiles up the cliff
+    obs = w.observe(); f = facts(obs)
+    assert f.nearest_hostile is None
+    got = [a.id for a in enumerate_affordances(obs, f, Persona(name="R", combat_disposition="aggressive"), {})]
+    assert not any(g.startswith(("attack:", "flee")) for g in got)
+
+
+def test_blacklisted_target_is_skipped():
+    w = FakeBody(); a = w.add_hostile(1, 0); b = w.add_hostile(2, 0)
+    obs = w.observe(); f = facts(obs)
+    mem = {"tick": 10, "target_blacklist": {a.serial: 100}}
+    got = [x.id for x in enumerate_affordances(obs, f, Persona(name="R", combat_disposition="aggressive"), mem)]
+    assert got[0] == f"attack:{b.serial}"

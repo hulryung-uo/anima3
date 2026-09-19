@@ -46,6 +46,15 @@ def parse_roster(specs: list[str]) -> list[Member]:
     return out
 
 
+def spawn_prey(gm: Gm, prey: str, count: int) -> int:
+    """Pinned prey (anima2's approach): it cannot wander to the miner or fall off the cliff."""
+    n = 0
+    for dx, dy in ((2, 2), (-2, 2), (2, -2), (-2, -2))[:count]:
+        if gm.add_npc_pinned(prey, PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z) is not None:
+            n += 1
+    return n
+
+
 def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
     rep = {"rename": gm.command_on(f"[Set Name {m.persona.name}", m.serial)}
     if m.mode == "economy":
@@ -62,10 +71,7 @@ def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
                 rep[item] = gm.command_on(f"[AddToPack {item}", m.serial)
         else:
             rep["kit"] = "already carried"
-        n = 0
-        for dx, dy in ((2, 2), (-2, 2), (2, -2), (-2, -2))[:prey_count]:
-            n += bool(gm.command_at(f"[Add {prey}", PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z))
-        rep["prey"] = n
+        rep["prey"] = spawn_prey(gm, prey, prey_count)
     return rep
 
 
@@ -133,9 +139,8 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(a.pump_ms / 1000)
             tick += 1
             if a.respawn_every and hunters and tick % a.respawn_every == 0:
-                for dx, dy in ((2, 2), (-2, 2))[:a.prey_count]:
-                    gm.command_at(f"[Add {a.prey}", PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z)
-                print(f"[gm] respawned prey at tick {tick}", flush=True)
+                n = spawn_prey(gm, a.prey, a.prey_count)
+                print(f"[gm] respawned {n} pinned prey at tick {tick}", flush=True)
             if tick % 100 == 0:
                 for m in roster:
                     r = m.agent.reports[-1] if m.agent.reports else None

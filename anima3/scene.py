@@ -43,7 +43,10 @@ class Facts:
 
 def facts(obs: Observation) -> Facts:
     p = obs.player
-    hostiles = sorted((m for m in obs.mobiles if m.hostile), key=lambda m: m.distance)
+    for m in obs.mobiles:
+        m.dz = m.pos.z - p.pos.z
+    # threats on another level cannot reach us and cannot be reached: they are noted, not targeted
+    hostiles = sorted((m for m in obs.mobiles if m.hostile and m.reachable), key=lambda m: m.distance)
     people = sorted((m for m in obs.mobiles if m.person and not m.hostile and m.serial != p.serial),
                     key=lambda m: m.distance)
     loot = sorted((i for i in obs.on_ground() if i.graphic in _ITEM_NAMES and i.distance <= 6), key=lambda i: i.distance)
@@ -95,7 +98,9 @@ def render(obs: Observation, f: Facts, who="") -> str:
             f"{m.name or 'a creature'} ({_NOTO.get(m.notoriety, 'hostile')}, {_dist_word(m.distance)}, "
             f"{'wounded' if m.hits_max and m.hits < m.hits_max * 0.5 else 'unhurt'})" for m in f.hostiles[:3]))
     else:
-        lines.append("No hostiles nearby.")
+        off = [m for m in obs.mobiles if m.hostile and not m.reachable]
+        lines.append("No hostiles nearby." if not off else
+                     f"No hostiles on this level ({len(off)} on the cliff {'above' if off[0].dz > 0 else 'below'}, out of reach).")
     if f.people:
         lines.append("People: " + "; ".join(f"{m.name or 'someone'} ({_dist_word(m.distance)}{', gray' if m.notoriety == 3 else ''})" for m in f.people[:3]))
     if f.ground_loot:

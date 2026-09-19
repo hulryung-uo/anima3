@@ -114,6 +114,14 @@ class Mobile:
     def person(self) -> bool:
         return self.body in HUMAN_BODIES
 
+    #: Set by `facts()` from the player's z: the core's `distance` is x/y only, and a
+    #: mongbat twenty tiles down the cliff face reads as "adjacent" (live-caught).
+    dz: int = 0
+
+    @property
+    def reachable(self) -> bool:
+        return abs(self.dz) <= 5
+
     @property
     def hostile(self) -> bool:
         """A creature that may lawfully be attacked; a *person* only when criminal/enemy/murderer.

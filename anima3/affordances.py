@@ -157,7 +157,10 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     if f.dead:
         return []
     out: list[Affordance] = []
-    threat = f.nearest_hostile
+    black = memory.get("target_blacklist", {})
+    now = memory.get("tick", 0)
+    live = [m for m in f.hostiles if black.get(m.serial, -1) <= now]
+    threat = live[0] if live else None
 
     def add_bandage() -> None:
         if f.bandages is not None:

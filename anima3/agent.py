@@ -120,6 +120,7 @@ class Agent:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
         self._hear(obs)
+        self._track_target(obs)
         if self._prev_obs is not None and obs.skills:
             d = {k: v for k, v in training_delta(self._prev_obs, obs).items() if abs(v) < 5.0}  # > 5 in a tick is GM staging
             if d:
@@ -226,6 +227,24 @@ class Agent:
         self._log(rep, scene, options, decision, admitted)
         self.reports.append(rep)
         return rep
+
+    def _track_target(self, obs) -> None:
+        """A target we have been attacking, adjacent, for 40 ticks without it dying is
+        not reachable (line of sight, height); blacklist it for a while."""
+        eng = self.memory.get("engaged")
+        if eng is None:
+            return
+        t = next((m for m in obs.mobiles if m.serial == eng), None)
+        if t is None or t.distance > 1:
+            self.memory["engaged_since"] = None
+            return
+        since = self.memory.get("engaged_since") or self.tick_no
+        self.memory["engaged_since"] = since
+        if self.tick_no - since >= 40:
+            self.memory.setdefault("target_blacklist", {})[eng] = self.tick_no + 120
+            self.memory["engaged"] = None
+            self.memory["engaged_since"] = None
+            self.proc_log.append((self.tick_no, f"attack:{eng}", "abandoned (no kill in 40 adjacent ticks)"))
 
     def _hear(self, obs) -> None:
         """Triage speech from nearby people into `memory['heard_pending']` (once each)."""
