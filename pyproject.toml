@@ -1,0 +1,28 @@
+[project]
+name = "anima3"
+version = "0.1.0"
+description = "A thin System-One brain that drives anima-client directly: scene -> closed verb menu -> logprob choice."
+requires-python = ">=3.12,<3.13"
+dependencies = ["pyyaml>=6"]
+
+[project.optional-dependencies]
+qwen = ["mlx-lm>=0.28"]
+jeff = ["typesafe-sdk>=0.7"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["anima3*"]
+
+[tool.setuptools.package-data]
+anima3 = ["personas/*.yaml"]
