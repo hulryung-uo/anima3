@@ -127,7 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         os.makedirs(a.log_dir, exist_ok=True)
         for m in roster:
             m.agent = Agent(m.body, m.persona, client, decide_every=3, pump_ms=a.pump_ms, economy=(m.mode == "economy"),
-                            triage=triage, speech=speech, log_path=f"{a.log_dir}/{m.persona.name.lower()}.jsonl")
+                            triage=triage, speech=speech, log_path=f"{a.log_dir}/{m.persona.name.lower()}.jsonl",
+                            chronicle_path=f"{a.log_dir}/{m.persona.name.lower()}.chronicle.md")
             if m.mode == "hunt":
                 m.persona.combat_disposition = m.persona.combat_disposition or "aggressive"
         threads = [threading.Thread(target=m.agent.run, args=(a.ticks,), daemon=True, name=m.persona.name) for m in roster]
@@ -166,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n=== {m.persona.who} ({m.mode}) ===")
         print({k: s[k] for k in ("ticks", "gold", "dead", "min_hp_pct", "model_calls", "model_admitted", "skill_gains", "gm")}, "deaths:", deaths.get(m.persona.name))
         print("speech:", s.get("speech"))
+        print("aim:", s.get("aim"))
         print("procedures:", s.get("procedures", [])[-12:])
     return 0
 

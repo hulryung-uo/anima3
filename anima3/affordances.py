@@ -113,6 +113,26 @@ def _chase_proc(serial: int, want_war: bool):
     return proc
 
 
+def _visit_proc(serial: int):
+    """Walk (A*) to within 3 tiles of a person, re-issued as they move."""
+    def proc(obs0, memory):
+        obs = obs0
+        last = None
+        for _ in range(80):
+            t = next((m for m in obs.mobiles if m.serial == serial), None)
+            if t is None:
+                return "lost"
+            if t.distance <= 3:
+                return "arrived"
+            if last != (t.pos.x, t.pos.y):
+                last = (t.pos.x, t.pos.y)
+                obs = yield walk_to(t.pos.x, t.pos.y)
+            else:
+                obs = yield None
+        return "gave up"
+    return proc
+
+
 def _loot_proc(corpse_serial: int):
     """Open the corpse, then lift its gold and drop it into the backpack."""
     def proc(obs0, memory):
@@ -245,9 +265,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         if m.distance <= 4 and m.serial not in greeted and persona.talkativeness > 0:
             for k, line in enumerate(persona.speech_examples[:2]):
                 out.append(Affordance(f"say:{m.serial}:{k}", f'Say to {m.name or "them"}: "{line}"', (say(line),)))
-        elif 4 < m.distance <= 12 and m.serial not in greeted and persona.talkativeness > 0 and not memory.get("economy"):
-            d = direction_toward(p.pos, m.pos)
-            out.append(Affordance(f"visit:{m.serial}", f"Walk over to {m.name or 'the person'} nearby.", (walk(d),)))
+        elif 4 < m.distance <= 30 and m.serial not in greeted and persona.talkativeness > 0 and not memory.get("economy"):
+            out.append(Affordance(f"visit:{m.serial}", f"Walk over to {m.name or 'the person'} and say hello.",
+                                  procedure=_visit_proc(m.serial)))
     if f.hp_pct < 0.6:
         add_bandage()
     for d, name in _step_options(obs)[:4]:

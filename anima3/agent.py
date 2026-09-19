@@ -57,7 +57,12 @@ class Agent:
         decide_every: int = 4, plan_ticks: int = 4, threshold: float = 0.35, deadline_s: float = 1.5,
         pump_ms: int = 250, log_path: str | Path | None = None, sync: bool | None = None,
         economy: bool = False, proc_max_ticks: int = 60, triage=None, speech=None,
+        reflect_every: int = 150, chronicle_path: str | Path | None = None,
     ) -> None:
+        self.reflect_every = reflect_every
+        self.chronicle_path = Path(chronicle_path) if chronicle_path else None
+        self.aim: str | None = None
+        self._reflecting = False
         self.triage, self.speech = triage, speech
         self.speech_log: list[tuple[int, str, str | None, str]] = []   # (tick, heard, said, reason)
         self._speech_thread: threading.Thread | None = None
@@ -188,9 +193,13 @@ class Agent:
         options = {a.id: a.description for a in affs}
         by_id = {a.id: a for a in affs}
         scene = render(obs, f, self.persona)
-        self._last_scene = scene
         if econ_lines:
             scene += "\n" + "\n".join(econ_lines)
+        if self.aim:
+            scene += f"\nYour current aim: {self.aim}"
+        self._last_scene = scene
+        if self.speech is not None and self.reflect_every and self.tick_no % self.reflect_every == 0 and not self._reflecting:
+            self._reflect(scene)
         sig = self._signature(len(f.hostiles), f.hp_pct, options)
         changed = sig != self._last_sig
         self._last_sig = sig
@@ -268,6 +277,50 @@ class Agent:
                  "kind": tr.kind, "conf": tr.confidence, "tick": self.tick_no})
         # a pending line older than 20 ticks is stale
         self.memory["heard_pending"] = [h for h in self.memory.get("heard_pending", []) if self.tick_no - h["tick"] <= 20]
+
+    def _recent(self) -> str:
+        """A compact, factual account of the last stretch for the slow layer."""
+        n = self.reflect_every
+        procs = [f"{pid.split(':')[0]}={v}" for t, pid, v in self.proc_log if t > self.tick_no - n]
+        gains = {}
+        for t, d in self.skill_log:
+            if t > self.tick_no - n:
+                for k, v in d.items():
+                    gains[k] = round(gains.get(k, 0) + v, 1)
+        said = [s_ for t, _, s_, _ in self.speech_log if t > self.tick_no - n and s_]
+        parts = []
+        if procs:
+            import collections
+            parts.append("did " + ", ".join(f"{k}×{v}" for k, v in collections.Counter(procs).most_common(6)))
+        if gains:
+            parts.append("skills up " + ", ".join(f"{k} +{v}" for k, v in gains.items()))
+        if said:
+            parts.append("said " + " / ".join(said[-2:]))
+        r = self.reports[-1] if self.reports else None
+        if r:
+            parts.append(f"health {r.hp_pct:.0%}, gold {r.gold}")
+        return "; ".join(parts) or "nothing much"
+
+    def _reflect(self, scene: str) -> None:
+        """Off-thread: a new aim for the scene, and a chronicle entry."""
+        self._reflecting = True
+        recent = self._recent()
+        tick = self.tick_no
+
+        def work() -> None:
+            try:
+                line = self.speech.aim(self.persona, scene, recent)
+                if line.text:
+                    self.aim = line.text
+                entry = self.speech.chronicle(self.persona, scene, recent)
+                if entry.text and self.chronicle_path:
+                    self.chronicle_path.parent.mkdir(parents=True, exist_ok=True)
+                    with self.chronicle_path.open("a") as fh:
+                        fh.write(f"## tick {tick}\n\n{entry.text}\n\n*aim:* {self.aim or '-'}  \n*facts:* {recent}\n\n")
+            finally:
+                self._reflecting = False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _reply(self, h: dict, intent: str, scene: str) -> None:
         """Generate one line off-thread; the body says it when it arrives."""
@@ -384,5 +437,6 @@ class Agent:
                 "procedures": [f"{t}:{pid}={v}" for t, pid, v in self.proc_log][-40:],
                 "skill_gains": self.skill_gains(),
                 "speech": [(t, h[:40], (s_ or "")[:60], r) for t, h, s_, r in self.speech_log][-10:],
+                "aim": self.aim,
                 "gm": gm_count(self._last_obs, self.profession) if self._last_obs is not None and self._last_obs.skills else None,
                 "reasons": reasons}
