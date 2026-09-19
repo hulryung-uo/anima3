@@ -25,6 +25,7 @@ from .contract import (
     say,
     use,
     walk,
+    walk_to,
     war_mode,
 )
 from .persona import Persona
@@ -86,6 +87,29 @@ def _take_proc(serial: int, amount: int):
                 return "ok"
             obs = yield None
         return "unconfirmed"
+    return proc
+
+
+def _chase_proc(serial: int, want_war: bool):
+    """Close in with the core's A* (WalkTo re-issued as the target moves), then Attack."""
+    def proc(obs0, memory):
+        obs = obs0
+        if want_war:
+            obs = yield war_mode(True)
+        last = None
+        for _ in range(40):
+            t = next((m for m in obs.mobiles if m.serial == serial), None)
+            if t is None or t.hits <= 0 and t.hits_max:
+                return "gone"
+            if t.distance <= 1:
+                yield attack(serial)
+                return "engaged"
+            if last != (t.pos.x, t.pos.y):
+                last = (t.pos.x, t.pos.y)
+                obs = yield walk_to(t.pos.x, t.pos.y)
+            else:
+                obs = yield None
+        return "lost"
     return proc
 
 
@@ -153,7 +177,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         name, layer = GEAR_GRAPHICS[g.graphic]
         out.append(Affordance(f"equip:{g.serial}", f"Put on the {name}.", procedure=_equip_proc(g.serial, layer)))
     if threat is not None:
-        if f.hp_pct < 0.35:
+        being_hit = memory.get("hp_trend", 0.0) < -0.01
+        cannot_fight = persona.combat_disposition == "pacifist"
+        if f.hp_pct < 0.35 or (being_hit and cannot_fight and threat.distance <= 2):
             add_flee()
             add_bandage()
             return out or [HOLD]
@@ -165,11 +191,8 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
                 acts = (attack(threat.serial),) if f.war else (war_mode(True), attack(threat.serial))
                 out.append(Affordance(f"attack:{threat.serial}", f"Attack {who}.", acts))
             else:
-                d = direction_toward(p.pos, threat.pos)
-                dx, dy = DIRECTION_DELTAS[d]
-                if _walkable(obs, p.pos.x + dx, p.pos.y + dy):
-                    acts = (walk(d, run=True),) if f.war else (war_mode(True), walk(d, run=True))
-                    out.append(Affordance(f"attack:{threat.serial}", f"Close in on {who} and fight.", acts))
+                out.append(Affordance(f"attack:{threat.serial}", f"Close in on {who} and fight.",
+                                      procedure=_chase_proc(threat.serial, not f.war)))
         add_flee()
         if f.hp_pct < 0.7:
             add_bandage()

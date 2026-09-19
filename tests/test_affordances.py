@@ -99,3 +99,22 @@ def test_visit_offered_for_a_person_in_the_middle_distance():
     w = FakeBody(); w.add_person(7, 0, "Grimm")
     got = ids(w)
     assert any(g.startswith("visit:") for g in got)
+
+
+def test_chase_uses_walkto_then_attacks_when_adjacent():
+    from anima3.agent import Agent
+    from anima3.decision import Scripted
+    w = FakeBody(); w.add_hostile(4, 0, aggressive=False)
+    ag = Agent(w, Persona(name="R", combat_disposition="aggressive"), Scripted(), pump_ms=0)
+    ag.run(8)
+    types = [x["type"] for x in w.log if x["type"] != "AllNames"]
+    assert "WarMode" in types and "WalkTo" in types and "Attack" in types
+    assert any(v == "engaged" for _, pid, v in ag.proc_log if pid.startswith("attack:"))
+
+
+def test_pacifist_being_hit_gets_flee_only():
+    w = FakeBody(); w.add_hostile(1, 0)
+    mem = {"hp_trend": -0.1}
+    obs = w.observe()
+    got = [a.id for a in enumerate_affordances(obs, facts(obs), Persona(name="G", combat_disposition="pacifist"), mem)]
+    assert got == ["flee"]

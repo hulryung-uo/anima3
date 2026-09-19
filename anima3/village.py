@@ -55,8 +55,13 @@ def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
         rep["teleport"] = gm.command_on(f"[Set X {PREY_SPOT.x} Y {PREY_SPOT.y} Z {PREY_SPOT.z}", m.serial)
         for sk in Gm.WARRIOR_SKILLS:
             rep[sk] = gm.command_on(f"[Set Skills.{sk}.Base 100", m.serial)
-        for item in Gm.WARRIOR_KIT:
-            rep[item] = gm.command_on(f"[AddToPack {item}", m.serial)
+        obs = m.body.observe()
+        has_sword = any(i.graphic == 0x13FF for i in obs.items if i.container in (m.serial, obs.backpack_serial()))
+        if not has_sword:
+            for item in Gm.WARRIOR_KIT:
+                rep[item] = gm.command_on(f"[AddToPack {item}", m.serial)
+        else:
+            rep["kit"] = "already carried"
         n = 0
         for dx, dy in ((2, 2), (-2, 2), (2, -2), (-2, -2))[:prey_count]:
             n += bool(gm.command_at(f"[Add {prey}", PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z))

@@ -127,6 +127,10 @@ class Agent:
         self._prev_obs = obs if obs.skills else self._prev_obs
         self._last_obs = obs
         self.memory["tick"] = self.tick_no
+        hist: list = self.memory.setdefault("hp_hist", [])
+        hist.append(obs.player.hp_pct)
+        del hist[:-6]
+        self.memory["hp_trend"] = hist[-1] - hist[0] if len(hist) > 1 else 0.0
         if obs.corpse_of:  # death links are transient; remember our kills' corpses
             self.memory.setdefault("my_corpses", set()).update(obs.corpse_of)
         self._learn_names(obs)
@@ -135,7 +139,8 @@ class Agent:
         if self._proc is not None:
             pid, gen, started = self._proc
             limit = self.proc_max_ticks * (8 if pid.startswith("goto:") else 1)  # a long walk is legitimate
-            interrupted = f.dead or (f.hostiles and f.hostiles[0].distance <= 3) or self.tick_no - started > limit
+            danger = bool(f.hostiles and f.hostiles[0].distance <= 3) and not pid.startswith("attack:")  # closing in is the chase's goal
+            interrupted = f.dead or danger or f.hp_pct < 0.35 or self.tick_no - started > limit
             if not interrupted:
                 rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, chosen=pid, reason="procedure")
                 try:
