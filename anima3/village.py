@@ -47,11 +47,11 @@ def parse_roster(specs: list[str]) -> list[Member]:
     return out
 
 
-def spawn_prey(gm: Gm, prey: str, count: int) -> int:
+def spawn_prey(gm: Gm, prey: str, count: int, exclude: set[int] | None = None) -> int:
     """Pinned prey (anima2's approach): it cannot wander to the miner or fall off the cliff."""
     n = 0
     for dx, dy in ((2, 2), (-2, 2), (2, -1), (-2, -1))[:count]:
-        if gm.add_npc_pinned(prey, PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z) is not None:
+        if gm.add_npc_pinned(prey, PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z, exclude=exclude) is not None:
             n += 1
     return n
 
@@ -75,7 +75,8 @@ def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
                 rep[item] = gm.command_on(f"[AddToPack {item}", m.serial)
         else:
             rep["kit"] = "already carried"
-        rep["prey"] = spawn_prey(gm, prey, prey_count)
+        rep["unpin"] = gm.command_on("[Set CantWalk false", m.serial)   # undo any earlier mis-pin
+        rep["prey"] = spawn_prey(gm, prey, prey_count, exclude={m.serial})
     return rep
 
 
@@ -153,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
                         deaths[m.persona.name] += 1
                         print(f"[gm] resurrected {m.persona.name} (death #{deaths[m.persona.name]}) at tick {tick}", flush=True)
             if a.respawn_every and hunters and tick % a.respawn_every == 0:
-                n = spawn_prey(gm, a.prey, a.prey_count)
+                n = spawn_prey(gm, a.prey, a.prey_count, exclude={x.serial for x in roster})
                 print(f"[gm] respawned {n} pinned prey at tick {tick}", flush=True)
             if tick % 100 == 0:
                 for m in roster:

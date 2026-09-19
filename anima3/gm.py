@@ -72,15 +72,21 @@ class Gm:
     def add_item_at(self, kind: str, x: int, y: int, z: int) -> bool:
         return self.command_at(f"[Add {kind}", x, y, z)
 
-    def add_npc_pinned(self, kind: str, x: int, y: int, z: int) -> int | None:
-        """`[Add <npc>` at a spot, find it, and `[Set CantWalk true` so it stays put."""
+    def add_npc_pinned(self, kind: str, x: int, y: int, z: int, *, exclude: set[int] | None = None) -> int | None:
+        """`[Add <npc>` at a spot, find it, and `[Set CantWalk true` so it stays put.
+
+        Never pins a person: the warrior once teleported in beside the spawn a tick
+        earlier, was taken for the new mongbat, and could not walk for four runs."""
+        from .contract import HUMAN_BODIES
+        exclude = set(exclude or ()) | {int(self.body.ready["player"]["serial"])}
         before = {m.serial for m in self.body.observe().mobiles}
         if not self.command_at(f"[Add {kind}", x, y, z):
             return None
         for _ in range(10):
             self.body.pump(self.pump_ms)
             obs = self.body.observe()
-            new = [m for m in obs.mobiles if m.serial not in before and chebyshev(m.pos, type(m.pos)(x, y, z)) <= 3]
+            new = [m for m in obs.mobiles if m.serial not in before and m.serial not in exclude
+                   and m.body not in HUMAN_BODIES and chebyshev(m.pos, type(m.pos)(x, y, z)) <= 3]
             if new:
                 serial = new[0].serial
                 self.command_on("[Set CantWalk true", serial)
