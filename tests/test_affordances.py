@@ -69,7 +69,7 @@ def test_loot_offered_only_for_own_corpse():
     from anima3.scene import facts
     assert not any(a.id.startswith("loot:") for a in enumerate_affordances(obs, facts(obs), P, {}))
     obs.corpse_of = {0x777: 0x999}
-    assert any(a.id == "loot:1911" for a in enumerate_affordances(obs, facts(obs), P, {}))
+    assert any(a.id == "loot:1911" for a in enumerate_affordances(obs, facts(obs), P, {"attacked": {0x999}}))
 
 
 def test_equip_procedure_lifts_then_equips_and_confirms():
@@ -136,3 +136,18 @@ def test_blacklisted_target_is_skipped():
     mem = {"tick": 10, "target_blacklist": {a.serial: 100}}
     got = [x.id for x in enumerate_affordances(obs, f, Persona(name="R", combat_disposition="aggressive"), mem)]
     assert got[0] == f"attack:{b.serial}"
+
+
+def test_only_own_kills_are_looted():
+    from anima3.contract import Item, Pos
+    w = FakeBody(); obs = w.observe()
+    obs.items.append(Item(0x777, 0x2006, 1, Pos(101, 100, 0), None, 0, 1)); obs.corpse_of = {0x777: 0x999}
+    assert not any(a.id.startswith("loot:") for a in enumerate_affordances(obs, facts(obs), P, {"attacked": set()}))
+    assert any(a.id == "loot:1911" for a in enumerate_affordances(obs, facts(obs), P, {"attacked": {0x999}}))
+
+
+def test_friends_are_never_threats():
+    w = FakeBody(); m = w.add_hostile(1, 0)
+    obs = w.observe(); f = facts(obs)
+    got = [a.id for a in enumerate_affordances(obs, f, Persona(name="R", combat_disposition="aggressive"), {"friends": {m.serial}})]
+    assert not any(g.startswith(("attack:", "flee")) for g in got)

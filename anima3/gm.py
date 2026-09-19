@@ -23,6 +23,7 @@ class Gm:
     def __init__(self, body: BridgeBody, pump_ms: int = 300) -> None:
         self.body = body
         self.pump_ms = pump_ms
+        self._known_skills: dict[tuple[int, str], float] = {}   # (serial, name) -> base, told by the village
 
     def _await_cursor(self, tries: int = 10) -> bool:
         for _ in range(tries):
@@ -117,7 +118,8 @@ class Gm:
                 report["blacksmith"] = self.add_npc_pinned("Blacksmith", SMITH_VENDOR_SPOT.x, SMITH_VENDOR_SPOT.y, SMITH_VENDOR_SPOT.z)
                 report["tinker"] = self.add_npc_pinned("Tinker", TINKER_VENDOR_SPOT.x, TINKER_VENDOR_SPOT.y, TINKER_VENDOR_SPOT.z)
         for sk in ("Mining", "Blacksmith", "Tinkering"):
-            report[sk] = self.command_on(f"[Set Skills.{sk}.Base {skill}", who)
+            # never lower a skill the character has already trained past the floor
+            report[sk] = self.command_on(f"[Set Skills.{sk}.Base {skill}", who) if not self._skill_at_least(who, sk, skill) else "kept"
         for item in ("Pickaxe", "Tongs", "TinkerTools", "Bandage 50"):
             report[item] = self.command_on(f"[AddToPack {item}", who)
         if who != me:
@@ -128,6 +130,14 @@ class Gm:
         report["mine_at"] = (obs.player.pos.x, obs.player.pos.y, obs.player.pos.z)
         report["pack"] = sorted({hex(i.graphic) for i in obs.own_pack()})
         return report
+
+    def _skill_at_least(self, serial: int, name: str, floor: float) -> bool:
+        me = int(self.body.ready["player"]["serial"])
+        if serial != me:
+            return bool(self._known_skills.get((serial, name), 0.0) >= floor)
+        from .progression import SKILL_IDS
+        obs = self.body.observe()
+        return any(s.id == SKILL_IDS.get(name) and s.base >= floor for s in obs.skills)
 
     def ground_near(self, radius: int = 3) -> list:
         obs = self.body.observe()

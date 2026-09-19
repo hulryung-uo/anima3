@@ -97,20 +97,36 @@ def _chase_proc(serial: int, want_war: bool):
         if want_war:
             obs = yield war_mode(True)
         last = None
-        for _ in range(40):
+        for k in range(40):
             t = next((m for m in obs.mobiles if m.serial == serial), None)
-            if t is None or t.hits <= 0 and t.hits_max:
+            if t is None:
                 return "gone"
             if t.distance <= 1:
                 yield attack(serial)
                 return "engaged"
-            if last != (t.pos.x, t.pos.y):
+            if last != (t.pos.x, t.pos.y) or k % 10 == 0:
                 last = (t.pos.x, t.pos.y)
-                obs = yield walk_to(t.pos.x, t.pos.y)
+                gx, gy = _adjacent_free_tile(obs, t.pos)
+                obs = yield walk_to(gx, gy)
             else:
                 obs = yield None
         return "lost"
     return proc
+
+
+def _adjacent_free_tile(obs: Observation, target: Pos) -> tuple[int, int]:
+    """A route to an occupied tile fails; aim for the walkable neighbour nearest to us."""
+    p = obs.player.pos
+    best, best_d = (target.x, target.y), 99
+    for dx, dy in DIRECTION_DELTAS:
+        x, y = target.x + dx, target.y + dy
+        if (x, y) == (p.x, p.y):
+            return (x, y)
+        if _walkable(obs, x, y) and not any(m.pos.x == x and m.pos.y == y for m in obs.mobiles):
+            d = max(abs(x - p.x), abs(y - p.y))
+            if d < best_d:
+                best, best_d = (x, y), d
+    return best
 
 
 def _visit_proc(serial: int):
@@ -178,8 +194,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         return []
     out: list[Affordance] = []
     black = memory.get("target_blacklist", {})
+    friends = memory.get("friends", set())
     now = memory.get("tick", 0)
-    live = [m for m in f.hostiles if black.get(m.serial, -1) <= now]
+    live = [m for m in f.hostiles if black.get(m.serial, -1) <= now and m.serial not in friends]
     threat = live[0] if live else None
 
     def add_bandage() -> None:
@@ -231,7 +248,10 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         out.append(Affordance("stand_down", "Leave war mode; the fight is over.", (war_mode(False),)))
     looted: set[int] = memory.setdefault("looted", set())
     my_corpses: set[int] = memory.setdefault("my_corpses", set())
-    my_corpses.update(obs.corpse_of)
+    attacked: set[int] = memory.setdefault("attacked", set())
+    # Only corpses of things *we* attacked: looting another's kill is a crime in Britannia
+    # (live-caught: the miner went gray for it and the village warrior killed him).
+    my_corpses.update(c for c, killed in obs.corpse_of.items() if killed in attacked)
     mine = [i for i in obs.items if i.graphic == CORPSE_GRAPHIC and i.container is None
             and i.serial in my_corpses and i.serial not in looted and i.distance <= 6]
     for c in sorted(mine, key=lambda i: i.distance)[:1]:
@@ -265,7 +285,7 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         if m.distance <= 4 and m.serial not in greeted and persona.talkativeness > 0:
             for k, line in enumerate(persona.speech_examples[:2]):
                 out.append(Affordance(f"say:{m.serial}:{k}", f'Say to {m.name or "them"}: "{line}"', (say(line),)))
-        elif 4 < m.distance <= 30 and m.serial not in greeted and persona.talkativeness > 0 and not memory.get("economy"):
+        elif 4 < m.distance <= 30 and m.serial not in greeted and persona.talkativeness > 0 and not memory.get("economy") and m.notoriety != 3:
             out.append(Affordance(f"visit:{m.serial}", f"Walk over to {m.name or 'the person'} and say hello.",
                                   procedure=_visit_proc(m.serial)))
     if f.hp_pct < 0.6:

@@ -127,7 +127,7 @@ class Agent:
         self._hear(obs)
         self._track_target(obs)
         if self._prev_obs is not None and obs.skills:
-            d = {k: v for k, v in training_delta(self._prev_obs, obs).items() if abs(v) < 5.0}  # > 5 in a tick is GM staging
+            d = {k: v for k, v in training_delta(self._prev_obs, obs).items() if 0 < v < 5.0}  # a drop or a jump is GM staging
             if d:
                 self.skill_log.append((self.tick_no, d))
         self._prev_obs = obs if obs.skills else self._prev_obs
@@ -387,6 +387,7 @@ class Agent:
             self.memory.setdefault("greeted", set()).add(int(aff.id.split(":")[1]))
         elif aff.id.startswith("attack:"):
             self.memory["engaged"] = int(aff.id.split(":")[1])
+            self.memory.setdefault("attacked", set()).add(int(aff.id.split(":")[1]))
 
     def _log_proc(self, pid: str, obs, step) -> None:
         if not self.log_path:

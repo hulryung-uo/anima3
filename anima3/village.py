@@ -58,6 +58,9 @@ def spawn_prey(gm: Gm, prey: str, count: int) -> int:
 
 def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
     rep = {"rename": gm.command_on(f"[Set Name {m.persona.name}", m.serial)}
+    from .progression import SKILL_NAMES
+    for sk in m.body.observe().skills:      # the GM learns what the character already has
+        gm._known_skills[(m.serial, SKILL_NAMES.get(sk.id, ""))] = sk.base
     if m.mode == "economy":
         rep.update(gm.stage_economy(m.serial))
     elif m.mode == "hunt":
@@ -121,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             rep = stage(gm, m, a.prey, a.prey_count)
             print(f"staged {m.persona.name}: " + ", ".join(f"{k}={v}" for k, v in rep.items() if k in ("rename", "teleport", "prey", "workplace", "forge")), flush=True)
         gm.go(MINE_SPOT.x + 12, MINE_SPOT.y + 12, MINE_SPOT.z)
+        gm.journal_after("[Hide", pumps=2)   # the fixture should not be a person anyone visits
 
         # 3. agents
         import os
@@ -129,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             m.agent = Agent(m.body, m.persona, client, decide_every=3, pump_ms=a.pump_ms, economy=(m.mode == "economy"),
                             triage=triage, speech=speech, log_path=f"{a.log_dir}/{m.persona.name.lower()}.jsonl",
                             chronicle_path=f"{a.log_dir}/{m.persona.name.lower()}.chronicle.md")
+            m.agent.memory["friends"] = {x.serial for x in roster if x is not m}   # villagers never fight each other
             if m.mode == "hunt":
                 m.persona.combat_disposition = m.persona.combat_disposition or "aggressive"
         threads = [threading.Thread(target=m.agent.run, args=(a.ticks,), daemon=True, name=m.persona.name) for m in roster]
