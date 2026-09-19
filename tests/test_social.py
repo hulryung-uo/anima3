@@ -45,3 +45,4 @@ def test_clean_strips_narration_and_refusals():
     assert clean('*grunts* "Iron vein\'s thin here."') == "Iron vein's thin here."
     assert clean("Grimm: Good ore today.\nmore") == "Good ore today."
     assert clean("As an AI language model I cannot") is None
+    assert clean('Grimm grunts. "Stay back. Work\'s not for you.') == "Stay back. Work's not for you."

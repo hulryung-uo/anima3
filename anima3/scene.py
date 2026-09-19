@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from .contract import (
     BANDAGE_GRAPHIC,
     GOLD_GRAPHIC,
-    INNOCENT_NOTORIETY,
     ORE_GRAPHICS,
     Item,
     Mobile,
@@ -45,7 +44,7 @@ class Facts:
 def facts(obs: Observation) -> Facts:
     p = obs.player
     hostiles = sorted((m for m in obs.mobiles if m.hostile), key=lambda m: m.distance)
-    people = sorted((m for m in obs.mobiles if m.person and m.notoriety in INNOCENT_NOTORIETY and m.serial != p.serial),
+    people = sorted((m for m in obs.mobiles if m.person and not m.hostile and m.serial != p.serial),
                     key=lambda m: m.distance)
     loot = sorted((i for i in obs.on_ground() if i.graphic in _ITEM_NAMES and i.distance <= 6), key=lambda i: i.distance)
     bandages = next(iter(obs.in_pack(BANDAGE_GRAPHIC)), None)
@@ -98,7 +97,7 @@ def render(obs: Observation, f: Facts, who="") -> str:
     else:
         lines.append("No hostiles nearby.")
     if f.people:
-        lines.append("People: " + "; ".join(f"{m.name or 'someone'} ({_dist_word(m.distance)})" for m in f.people[:3]))
+        lines.append("People: " + "; ".join(f"{m.name or 'someone'} ({_dist_word(m.distance)}{', gray' if m.notoriety == 3 else ''})" for m in f.people[:3]))
     if f.ground_loot:
         lines.append("On the ground: " + "; ".join(f"{item_name(i)} ({_dist_word(i.distance)})" for i in f.ground_loot[:3]))
     if f.heard:

@@ -111,12 +111,16 @@ class Mobile:
         )
 
     @property
-    def hostile(self) -> bool:
-        return self.notoriety in HOSTILE_NOTORIETY
-
-    @property
     def person(self) -> bool:
         return self.body in HUMAN_BODIES
+
+    @property
+    def hostile(self) -> bool:
+        """A creature that may lawfully be attacked; a *person* only when criminal/enemy/murderer.
+        A gray (3) human is another player or staff — someone to be wary of, not a monster."""
+        if self.person:
+            return self.notoriety in (4, 5, 6)
+        return self.notoriety in HOSTILE_NOTORIETY
 
 
 @dataclass

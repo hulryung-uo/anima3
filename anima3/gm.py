@@ -185,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--add", metavar="ITEM", action="append", default=[], help="`[AddToPack ITEM` on self")
     ap.add_argument("--probe-tool", metavar="GRAPHIC", action="append", default=[], help="Use the pack tool with this graphic (hex) and dump raw gump JSON for a few ticks")
     ap.add_argument("--set-self", metavar="PROP", action="append", default=[], help="`[Set PROP` on own character, e.g. Skills.Tinkering.Base 75")
+    ap.add_argument("--rename", nargs=2, metavar=("SERIAL", "NAME"), help="`[Set Name NAME` on a character")
     ap.add_argument("--stage-warrior", type=int, metavar="SERIAL", help="teleport/skill/kit another character at the hunting pocket and spawn prey")
     ap.add_argument("--prey", default="Mongbat"); ap.add_argument("--prey-count", type=int, default=2)
     ap.add_argument("--no-kit", action="store_true", help="stage-warrior: teleport and prey only (character already kitted)")
@@ -242,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
                 for gd in raw.get("gumps") or []:
                     body.act(gump_response(gd["serial"], gd["gump_id"], 0))
                 body.pump(300)
+        if a.rename:
+            print(f"  rename {a.rename[0]} -> {a.rename[1]}: {gm.command_on(f'[Set Name {a.rename[1]}', int(a.rename[0]))}")
         if a.stage_warrior:
             for k, v in gm.stage_warrior(a.stage_warrior, a.prey, a.prey_count, kit=not a.no_kit).items():
                 print(f"  {k}: {v}")

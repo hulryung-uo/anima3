@@ -38,3 +38,12 @@ def test_observation_from_bridge_like_json_ignores_unknown_keys():
     o = Observation.from_json(d)
     assert o.player.hp_pct == 0.5 and o.mobiles[0].hostile and o.on_ground()[0].amount == 9
     assert o.new_journal[0].cliloc == 0 and o.war is True and o.terrain is None
+
+
+def test_gray_human_is_a_person_not_a_hostile():
+    from anima3.contract import Mobile, Pos
+    gray_player = Mobile(1, "Bob", Pos(), 0x190, 3, 10, 10, 1)
+    murderer = Mobile(2, "Red", Pos(), 0x190, 6, 10, 10, 1)
+    gray_rat = Mobile(3, "a rat", Pos(), 0x00EE, 3, 10, 10, 1)
+    assert gray_player.person and not gray_player.hostile
+    assert murderer.hostile and gray_rat.hostile

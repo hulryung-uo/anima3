@@ -72,6 +72,9 @@ def clean(raw: str) -> str | None:
     line = re.sub(r"^(\*[^*]*\*\s*)", "", line)             # drop *actions*
     line = line.strip().strip('"“”').strip()
     line = re.sub(r"^[A-Z][a-z]+:\s*", "", line)              # "Grimm: ..."
+    m = re.search(r'"([^"]{3,})"?', line)                      # narration + a quoted line -> the line
+    if m and re.match(r"^[A-Z][a-z]+ [a-z]+[^\"]{0,40}\"", line):
+        line = m.group(1).strip()
     if not line or line.lower().startswith(("as an ai", "i'm sorry", "i am an ai")):
         return None
     return line[:MAX_CHARS]
