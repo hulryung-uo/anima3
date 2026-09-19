@@ -134,10 +134,17 @@ def main(argv: list[str] | None = None) -> int:
             t.start()
         # 4. GM keeps prey coming for the hunter(s)
         hunters = [m for m in roster if m.mode == "hunt"]
+        deaths: dict[str, int] = {m.persona.name: 0 for m in roster}
         tick = 0
         while any(t.is_alive() for t in threads):
             time.sleep(a.pump_ms / 1000)
             tick += 1
+            if tick % 25 == 0:  # the shard's healer, played by the GM: a death is counted, then undone
+                for m in roster:
+                    r = m.agent.reports[-1] if m.agent.reports else None
+                    if r and r.dead and gm.command_on("[Resurrect", m.serial):
+                        deaths[m.persona.name] += 1
+                        print(f"[gm] resurrected {m.persona.name} (death #{deaths[m.persona.name]}) at tick {tick}", flush=True)
             if a.respawn_every and hunters and tick % a.respawn_every == 0:
                 n = spawn_prey(gm, a.prey, a.prey_count)
                 print(f"[gm] respawned {n} pinned prey at tick {tick}", flush=True)
@@ -156,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     for m in roster:
         s = m.agent.summary()
         print(f"\n=== {m.persona.who} ({m.mode}) ===")
-        print({k: s[k] for k in ("ticks", "gold", "dead", "min_hp_pct", "model_calls", "model_admitted", "skill_gains", "gm")})
+        print({k: s[k] for k in ("ticks", "gold", "dead", "min_hp_pct", "model_calls", "model_admitted", "skill_gains", "gm")}, "deaths:", deaths.get(m.persona.name))
         print("speech:", s.get("speech"))
         print("procedures:", s.get("procedures", [])[-12:])
     return 0
