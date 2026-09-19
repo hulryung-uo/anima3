@@ -35,16 +35,21 @@ TRAINS: dict[str, tuple[int, ...]] = {
     "attack": (40, 27, 1),          # Swords, Tactics, Anatomy
     "bandage": (17, 1),             # Healing, Anatomy
     "sell": (), "goto": (), "loot": (), "equip": (),
+    "train:Hiding": (21,), "train:Meditation": (46,), "train:ArmsLore": (4,), "train:ItemID": (3,),
+    "train:Anatomy": (1,), "train:EvalInt": (16,), "train:DetectHidden": (14,), "train:Tracking": (38,),
 }
 
-#: The seven skills each profession is building. (ItemID/ArmsLore/Parry are the
-#: cheap fillers artisans take; a warrior's seven are the classic sword template.)
+#: Skills trained by invoking them (`UseSkill`) with no more than a target: what the
+#: character does between jobs. kind: none | item (something in the pack) | mobile (someone near).
+TRAINABLE: dict[int, str] = {21: "none", 46: "none", 4: "item", 3: "item", 1: "mobile", 16: "mobile", 14: "none", 38: "none"}
+#: Every skill here can be raised by verbs this brain has: work skills by the economy and
+#: combat, the rest by `train:` — so the seven are reachable, not aspirational.
 PROFESSION_GM: dict[str, tuple[int, ...]] = {
-    "miner":      (45, 7, 37, 44, 3, 4, 10),     # Mining, Blacksmith, Tinkering, Lumberjacking, ItemID, ArmsLore, Camping
-    "blacksmith": (7, 45, 37, 4, 3, 1, 17),
-    "tinker":     (37, 45, 7, 3, 24, 4, 1),
-    "warrior":    (40, 27, 1, 17, 5, 26, 21),    # Swords, Tactics, Anatomy, Healing, Parry, MagicResist, Hiding
-    "adventurer": (40, 27, 1, 17, 45, 7, 37),    # fights and works: the generalist
+    "miner":      (45, 7, 37, 4, 3, 21, 46),     # Mining, Blacksmith, Tinkering, ArmsLore, ItemID, Hiding, Meditation
+    "blacksmith": (7, 45, 37, 4, 3, 21, 46),
+    "tinker":     (37, 45, 7, 3, 4, 21, 46),
+    "warrior":    (40, 27, 1, 17, 4, 21, 46),    # Swords, Tactics, Anatomy, Healing, ArmsLore, Hiding, Meditation
+    "adventurer": (40, 27, 1, 17, 45, 21, 46),   # fights and works: the generalist
 }
 
 
@@ -82,7 +87,7 @@ def progress_scene(obs: Observation, profession: str) -> str:
     focus = next((x for x in sorted(g, key=lambda x: -x.gap) if x.trainable_by and x.gap > 0), None)
     line = f"Skills ({done}/{total} at Grandmaster): " + ", ".join(parts) + "."
     if focus:
-        line += f" Most room to grow by working: {focus.name} ({focus.gap:.1f} to go)."
+        line += f" Most room to grow: {focus.name} ({focus.gap:.1f} to go)."
     return line
 
 
@@ -108,3 +113,56 @@ def training_delta(before: Observation, after: Observation) -> dict[str, float]:
         if abs(d) >= 0.05:
             out[SKILL_NAMES.get(s.id, str(s.id))] = round(d, 1)
     return out
+
+
+SKILL_COOLDOWN_CLILOC = 500118   # "You must wait a few moments to use another skill."
+
+
+def _train_proc(skill_id: int, kind: str, target_serial: int | None):
+    from .contract import target_object, use_skill
+
+    def proc(obs0, memory):
+        obs = yield use_skill(skill_id)
+        if kind != "none":
+            for _ in range(3):
+                if obs.pending_target:
+                    break
+                obs = yield None
+            if not obs.pending_target:
+                return "no cursor"
+            obs = yield target_object(target_serial)
+        for _ in range(3):
+            if any(j.cliloc == SKILL_COOLDOWN_CLILOC for j in obs.new_journal):
+                return "cooldown"
+            obs = yield None
+        memory["train_next"] = memory.get("tick", 0) + 12
+        return "ok"
+    return proc
+
+
+def train_verbs(obs: Observation, profession: str, memory: dict) -> list:
+    """`train:<Skill>` for the profession's trainable skills that are still short of GM,
+    largest gap first — offered between jobs, never more often than every 12 ticks."""
+    from .affordances import Affordance
+    if memory.get("tick", 0) < memory.get("train_next", 0):
+        return []
+    out = []
+    for g in sorted(gaps(obs, profession), key=lambda x: -x.gap):
+        kind = TRAINABLE.get(g.id)
+        if kind is None or g.gap <= 0:
+            continue
+        target = None
+        if kind == "item":
+            it = next((i for i in obs.own_pack() if i.graphic not in (0x0EED,)), None)
+            if it is None:
+                continue
+            target = it.serial
+        elif kind == "mobile":
+            m = next((m for m in obs.mobiles if m.distance <= 8 and not m.hostile), None)
+            if m is None:
+                continue
+            target = m.serial
+        how = {"none": "", "item": " on something you carry", "mobile": " on someone nearby"}[kind]
+        out.append(Affordance(f"train:{g.name}", f"Practise {g.name}{how} ({g.base:.0f} of 100).",
+                              procedure=_train_proc(g.id, kind, target)))
+    return out[:2]

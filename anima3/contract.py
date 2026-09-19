@@ -388,3 +388,8 @@ def equip(serial: int, layer: int = 1) -> dict:
 def drop(serial: int, container: int, x: int = 0, y: int = 0, z: int = 0) -> dict:
     """Finish a lift: put the held item into `container` (a backpack, a bank box)."""
     return {"type": "Drop", "serial": int(serial), "x": int(x), "y": int(y), "z": int(z), "container": int(container)}
+
+
+def use_skill(skill: int) -> dict:
+    """Invoke a skill by id (the skill-button macro); targeted skills then open a cursor."""
+    return {"type": "UseSkill", "skill": int(skill)}

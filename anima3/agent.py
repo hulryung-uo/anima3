@@ -23,7 +23,7 @@ from .body import Body
 from .contract import all_names, click
 from .decision import Admitted, Decision, DecisionClient, gate
 from .persona import Persona
-from .progression import curriculum_key, gm_count, progress_scene, training_delta
+from .progression import curriculum_key, gm_count, progress_scene, train_verbs, training_delta
 from .scene import facts, render
 from .triage import addressed_to_me
 
@@ -185,7 +185,13 @@ class Agent:
                     econ_lines.append(line)
             # economy verbs go ahead of wandering/hold, after survival/loot
             keep = [a for a in affs if not a.id.startswith("walk:") and a.id != "hold"]
-            affs = keep + econ  # economy mode never offers wandering or idling; `wait:work` is the floor
+            econ = [a for a in econ if a.id != "wait:work"] or []
+            practice = train_verbs(obs, self.profession, self.memory) if obs.skills else []
+            affs = keep + econ + practice or [Affordance("wait:work", "Wait at the workplace; nothing can be done right now.")]
+        if not self.economy and obs.skills and not f.hostiles and not f.dead:
+            practice = train_verbs(obs, self.profession, self.memory)
+            if practice:   # between fights a hunter practises rather than idles
+                affs = [a for a in affs if a.id != "hold" and not a.id.startswith("walk:")] + practice
         rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, options=[a.id for a in affs])
         if not affs:
             rep.reason = "no affordances (dead or nothing valid)"

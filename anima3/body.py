@@ -269,6 +269,8 @@ class FakeBody:
             if it is not None and it.serial == action["serial"]:
                 self.held = None
                 self.worn.append(Item(it.serial, it.graphic, it.amount, Pos(), p.serial, int(action.get("layer", 1)), 0))
+        elif t == "UseSkill":
+            self.journal.append(Journal(0, "", "You begin practising.", 0, 0, 0))
         elif t == "AllNames":
             pass
         elif t == "Click":

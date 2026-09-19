@@ -54,8 +54,8 @@ SELL_CLILOC = 3_006_104
 
 # --- Craft gump buttons: 1 + type + index*7 (ServUO CraftGump) -----------------
 SMITH_CATEGORY_BLADED, SMITH_DAGGER = 22, 16
-TINKER_CATEGORY_TOOLS, TINKER_TONGS, TINKER_SCISSORS = 15, 86, 2
-DAGGER_COST, TONGS_COST = 3, 1
+TINKER_CATEGORY_TOOLS, TINKER_TONGS, TINKER_SCISSORS, TINKER_PICKAXE = 15, 86, 2, 114   # index 16 in the Tools page
+DAGGER_COST, TONGS_COST, PICKAXE_COST = 3, 1, 4
 
 # --- The Minoc ridge (z=20), calibrated live by anima2 --------------------------
 MINE_SPOT = Pos(2611, 474, 20)
@@ -324,7 +324,11 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
     if ef.tongs >= batch and (tinker is None or tinker.distance > REACH):
         out.append(Affordance("goto:tinker", "Walk to the tinker vendor to sell tongs.",
                               procedure=lambda o, m, t=(tinker.pos if tinker else TINKER_VENDOR_SPOT): goto(t, REACH, o)))
-    # 3. craft
+    # 3. craft — a pickaxe first when the last one wore out (50 swings each): without it nothing else happens
+    if ef.pickaxe is None and ef.tinker_tool and ef.ingots >= PICKAXE_COST:
+        out.append(Affordance("craft:pickaxe", f"Tinker a new pickaxe (uses {PICKAXE_COST} ingots; you have {ef.ingots}) — yours wore out.",
+                              procedure=lambda o, m, t=ef.tinker_tool.serial: craft_once(
+                                  t, TINKER_GUMP_TITLE, TINKER_CATEGORY_TOOLS, TINKER_PICKAXE, PICKAXE_GRAPHICS)))
     if ef.tinker_tool and ef.ingots >= TONGS_COST:
         out.append(Affordance("craft:tongs", f"Craft tongs with the tinker tools (uses {TONGS_COST} ingot; you have {ef.ingots}).",
                               procedure=lambda o, m, t=ef.tinker_tool.serial: craft_once(
@@ -343,6 +347,8 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
         out.append(Affordance("goto:forge", "Walk to the forge and anvil.",
                               procedure=lambda o, m: goto(SMITH_SPOT, 0, o)))
     # 5. mine — or at least stay at the workplace: a worker never wanders off the ridge
+    if ef.pickaxe is None and not any(a.id == "craft:pickaxe" for a in out) and ef.at_mine <= REACH and ef.forge is not None and not ef.forge_near and ef.ore:
+        pass  # (no pickaxe, no means to make one: the smelt/sell verbs above still run down the stock)
     if ef.pickaxe and ef.weight_pct < 0.9 and ef.at_mine <= REACH:
         out.append(Affordance("mine", "Swing the pickaxe at the rock for more ore.",
                               procedure=lambda o, m, t=ef.pickaxe.serial: mine_once(t, m)))
@@ -357,6 +363,6 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
     now = memory.get("tick", 0)
     out = [a for a in out if backoff.get(a.id, -1) <= now]
     # rule order: sell > goto vendor > craft > smelt > goto forge > mine
-    order = ["sell:", "goto:blacksmith", "goto:tinker", "craft:", "smelt", "goto:forge", "mine", "goto:mine"]
+    order = ["craft:pickaxe", "sell:", "goto:blacksmith", "goto:tinker", "craft:", "smelt", "goto:forge", "mine", "goto:mine"]
     out.sort(key=lambda a: next((k for k, pre in enumerate(order) if a.id.startswith(pre)), 99))
     return out
