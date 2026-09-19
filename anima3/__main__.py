@@ -54,9 +54,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sync", action="store_true", help="decide on the tick thread (deterministic; blocks the body)")
     ap.add_argument("--stage-spawn", metavar="KIND", help="live only: `[Add KIND` near the character before playing (owner account)")
     ap.add_argument("--stage-dx", type=int, default=4); ap.add_argument("--stage-dy", type=int, default=0)
+    ap.add_argument("--disposition", choices=["pacifist", "defensive", "neutral", "aggressive"], help="override the persona's combat_disposition")
     a = ap.parse_args(argv)
 
     persona = Persona.load(a.persona)
+    if a.disposition:
+        persona.combat_disposition = a.disposition
     client = build_client(a.backend)
     if hasattr(client, "warmup"):
         print(f"warmup: {client.name} loaded in {client.warmup():.0f} ms")

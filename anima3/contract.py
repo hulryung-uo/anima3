@@ -255,3 +255,13 @@ def target_object(serial: int) -> dict:
 
 def target_ground(x: int, y: int, z: int, graphic: int = 0) -> dict:
     return {"type": "TargetGround", "x": int(x), "y": int(y), "z": int(z), "graphic": int(graphic)}
+
+
+def all_names() -> dict:
+    """Ask the server for the names of everything on screen (ClassicUO 'AllNames')."""
+    return {"type": "AllNames"}
+
+
+def click(serial: int) -> dict:
+    """Single-click: the server answers with the object's name as a journal line."""
+    return {"type": "Click", "serial": int(serial)}

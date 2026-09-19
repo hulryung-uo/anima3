@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .affordances import Affordance, enumerate_affordances
 from .body import Body
+from .contract import all_names, click
 from .decision import Admitted, Decision, DecisionClient, gate
 from .persona import Persona
 from .scene import facts, render
@@ -96,7 +97,10 @@ class Agent:
     # --- one tick --------------------------------------------------------------
     def tick(self) -> TickReport:
         self.tick_no += 1
+        if self.tick_no % 20 == 1:
+            self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
+        self._learn_names(obs)
         f = facts(obs)
         affs = enumerate_affordances(obs, f, self.persona, self.memory)
         rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, options=[a.id for a in affs])
@@ -146,6 +150,24 @@ class Agent:
         self._log(rep, scene, options, decision, admitted)
         self.reports.append(rep)
         return rep
+
+    def _learn_names(self, obs) -> None:
+        """Names arrive as journal lines answering a Click; cache them by serial and
+        click one unnamed nearby mobile per tick so the scene stops saying 'a creature'."""
+        names: dict[int, str] = self.memory.setdefault("names", {})
+        serials = {m.serial for m in obs.mobiles}
+        for j in obs.new_journal:
+            if j.serial in serials and j.text and j.serial not in names:
+                names[j.serial] = j.name or j.text
+        for m in obs.mobiles:
+            if not m.name and m.serial in names:
+                m.name = names[m.serial]
+        clicked: set[int] = self.memory.setdefault("clicked", set())
+        for m in obs.mobiles:
+            if not m.name and m.serial not in clicked and m.distance <= 12:
+                clicked.add(m.serial)
+                self.body.act(click(m.serial))
+                break
 
     def _execute(self, aff: Affordance, f) -> None:
         for action in aff.actions:

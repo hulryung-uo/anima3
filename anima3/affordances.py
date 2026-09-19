@@ -90,8 +90,16 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         can_fight = persona.combat_disposition != "pacifist" and (
             persona.combat_disposition != "defensive" or threat.distance <= 2 or memory.get("engaged") == threat.serial)
         if can_fight:
-            acts = (attack(threat.serial),) if f.war else (war_mode(True), attack(threat.serial))
-            out.append(Affordance(f"attack:{threat.serial}", f"Attack {threat.name or 'the creature'}.", acts))
+            who = threat.name or "the creature"
+            if threat.distance <= 1:
+                acts = (attack(threat.serial),) if f.war else (war_mode(True), attack(threat.serial))
+                out.append(Affordance(f"attack:{threat.serial}", f"Attack {who}.", acts))
+            else:
+                d = direction_toward(p.pos, threat.pos)
+                dx, dy = DIRECTION_DELTAS[d]
+                if _walkable(obs, p.pos.x + dx, p.pos.y + dy):
+                    acts = (walk(d, run=True),) if f.war else (war_mode(True), walk(d, run=True))
+                    out.append(Affordance(f"attack:{threat.serial}", f"Close in on {who} and fight.", acts))
         add_flee()
         if f.hp_pct < 0.7:
             add_bandage()

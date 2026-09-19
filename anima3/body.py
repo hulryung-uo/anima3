@@ -242,6 +242,12 @@ class FakeBody:
                     break
         elif t == "Say":
             self.journal.append(Journal(p.serial, p.name, action["text"], 0, 0, 0))
+        elif t == "AllNames":
+            pass
+        elif t == "Click":
+            for m in self.mobiles:
+                if m.serial == action["serial"]:
+                    self.journal.append(Journal(m.serial, m.name, m.name, 0, 0, 0))
 
     def pump(self, ms: int) -> int:
         if ms > 0:
