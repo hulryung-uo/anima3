@@ -260,8 +260,18 @@ class Observation:
         )
 
     # --- convenience views -------------------------------------------------
+    def backpack_serial(self) -> int | None:
+        """The player's own backpack: the item worn on layer 0x15 by the player."""
+        bp = next((i for i in self.items if i.layer == BACKPACK_LAYER and i.container == self.player.serial), None)
+        return bp.serial if bp else None
+
+    def own_pack(self) -> list[Item]:
+        """Items inside the player's backpack only — never a vendor's stock or worn gear."""
+        bp = self.backpack_serial()
+        return [i for i in self.items if bp is not None and i.container == bp]
+
     def in_pack(self, graphic: int) -> list[Item]:
-        return [i for i in self.items if i.graphic == graphic and i.container is not None]
+        return [i for i in self.own_pack() if i.graphic == graphic]
 
     def on_ground(self) -> list[Item]:
         return [i for i in self.items if i.container is None]

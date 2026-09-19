@@ -23,14 +23,14 @@ from anima3.economy import (
     smelt_once,
 )
 
+PACK = 0x4000_0001
+BACKPACK = Item(PACK, 0x0E75, 1, Pos(), 1, 0x15, 0)   # worn by player serial 1 on layer 0x15
+
 
 def obs(pos=MINE_SPOT, items=(), journal=(), pending=False, gumps=(), popup=None, shop_sell=None, gold=0, mobiles=()):
     return Observation(player=Player(serial=1, name="G", pos=pos, hits=50, hits_max=50, gold=gold, weight=10, weight_max=100),
-                       mobiles=list(mobiles), items=list(items), new_journal=list(journal), pending_target=pending,
+                       mobiles=list(mobiles), items=[BACKPACK, *items], new_journal=list(journal), pending_target=pending,
                        gumps=list(gumps), popup=popup, shop_sell=shop_sell)
-
-
-PACK = 0x4000_0001
 def pk(serial, graphic, amount=1):
     return Item(serial, graphic, amount, Pos(), PACK, 0x15, 0)
 def gd(serial, graphic, pos, dist):
@@ -68,9 +68,19 @@ def test_smelt_once_confirms_by_ingot_count():
 def test_craft_once_presses_category_then_item():
     g = Gump(77, 5, f"xmfhtmlgump 10 10 200 20 {SMITH_GUMP_TITLE} 0 0")
     acts, v = drive(craft_once(0x40, SMITH_GUMP_TITLE, 22, 16, DAGGER_GRAPHIC),
-                    [obs(gumps=[g]), obs(gumps=[g]), obs(items=[pk(9, DAGGER_GRAPHIC, 1)])])
+                    [obs(), obs(gumps=[g]), obs(gumps=[g]), obs(items=[pk(9, DAGGER_GRAPHIC, 1)])])
     assert [a["type"] for a in acts] == ["Use", "GumpResponse", "GumpResponse"]
     assert acts[1]["button"] == 22 and acts[2]["button"] == 16 and v == "ok"
+
+
+def test_craft_once_closes_a_stray_gump_and_reads_failure_from_the_gump():
+    stray = Gump(3, 9, "{ page 0 }")
+    g = Gump(77, 5, f"xmfhtmlgump 10 10 200 20 {SMITH_GUMP_TITLE} 0 0")
+    failed = Gump(78, 5, f"xmfhtmlgump {SMITH_GUMP_TITLE} 0 0 xmfhtmlgump 1044043")
+    acts, v = drive(craft_once(0x40, SMITH_GUMP_TITLE, 22, 16, DAGGER_GRAPHIC),
+                    [obs(gumps=[stray]), obs(), obs(gumps=[g]), obs(gumps=[g]), obs(gumps=[failed])])
+    assert acts[0] == {"type": "GumpResponse", "serial": 3, "gump_id": 9, "button": 0}
+    assert v == "failed"
 
 
 def test_sell_once_walks_the_context_menu_and_confirms_gold():

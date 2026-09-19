@@ -11,6 +11,7 @@ it stays valid, so steering is not diluted by the rule between decisions.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -111,6 +112,7 @@ class Agent:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
         self._last_obs = obs
+        self.memory["tick"] = self.tick_no
         self._learn_names(obs)
         f = facts(obs)
         # An active procedure owns the tick unless danger interrupts it.
@@ -123,10 +125,14 @@ class Agent:
                     step = gen.send(obs)
                     if step is not None:
                         self.body.act(step)
+                    self._log_proc(pid, obs, step)
                 except StopIteration as done:
                     self.proc_log.append((self.tick_no, pid, str(done.value)))
                     rep.reason = f"procedure done: {done.value}"
                     self._proc = None
+                    if done.value != "ok" and pid.split(":")[0] in ("sell", "craft", "smelt", "goto"):
+                        # a refused or failed verb is not retried immediately; let the others run
+                        self.memory.setdefault("backoff", {})[pid] = self.tick_no + 40
                 self.body.pump(self.pump_ms)
                 self.reports.append(rep)
                 return rep
@@ -228,6 +234,17 @@ class Agent:
             self.memory.setdefault("greeted", set()).add(int(aff.id.split(":")[1]))
         elif aff.id.startswith("attack:"):
             self.memory["engaged"] = int(aff.id.split(":")[1])
+
+    def _log_proc(self, pid: str, obs, step) -> None:
+        if not self.log_path:
+            return
+        row = {"tick": self.tick_no, "proc": pid, "step": None if step is None else step.get("type"),
+               "journal": [(j.cliloc, j.text[:80]) for j in obs.new_journal if j.text or j.cliloc],
+               "gumps": [(g.serial, g.gump_id, sorted(set(re.findall(r"[0-9]{7}", g.layout)))[:12]) for g in obs.gumps],
+               "cursor": obs.pending_target, "popup": None if obs.popup is None else len(obs.popup.entries),
+               "shop_sell": None if obs.shop_sell is None else len(obs.shop_sell.items)}
+        with self.log_path.open("a") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def _log(self, rep: TickReport, scene: str, options: dict[str, str], decision: Decision | None, admitted: Admitted | None) -> None:
         if not self.log_path:

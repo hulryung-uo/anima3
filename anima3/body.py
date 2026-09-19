@@ -110,11 +110,14 @@ class BridgeBody:
             raise BodyError("bridge closed the pipe")
         return json.loads(line)
 
-    def observe(self) -> Observation:
+    def observe_raw(self) -> dict[str, Any]:
         r = self._rpc({"cmd": "observe", "terrain_radius": self.terrain_radius})
         if not r.get("ok"):
             raise BodyError(r.get("error", "observe failed"))
-        return Observation.from_json(r["obs"])
+        return r["obs"]
+
+    def observe(self) -> Observation:
+        return Observation.from_json(self.observe_raw())
 
     def act(self, action: dict) -> None:
         r = self._rpc({"cmd": "act", "action": action})
@@ -198,6 +201,7 @@ class FakeBody:
         mobs = [Mobile(m.serial, m.name, m.pos, m.body, m.notoriety, m.hits, m.hits_max, chebyshev(p.pos, m.pos))
                 for m in self.mobiles if m.hits > 0]
         items = [Item(i.serial, i.graphic, i.amount, i.pos, None, 0, chebyshev(p.pos, i.pos)) for i in self.ground]
+        items += [Item(0x4000_0001, 0x0E75, 1, Pos(), p.serial, 0x15, 0)]  # the backpack itself
         items += [Item(i.serial, i.graphic, i.amount, i.pos, i.container, i.layer, 0) for i in self.pack]
         mobs.sort(key=lambda m: m.distance)
         items.sort(key=lambda i: i.distance)

@@ -132,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--createworld", action="store_true")
     ap.add_argument("--spawn", metavar="KIND"); ap.add_argument("--dx", type=int, default=3); ap.add_argument("--dy", type=int, default=0)
     ap.add_argument("--say", metavar="CMD", help="say an arbitrary cursor-less command and print the journal")
+    ap.add_argument("--pack", action="store_true", help="list pack items (graphic, amount, serial)")
+    ap.add_argument("--add", metavar="ITEM", action="append", default=[], help="`[AddToPack ITEM` on self")
+    ap.add_argument("--probe-tool", metavar="GRAPHIC", action="append", default=[], help="Use the pack tool with this graphic (hex) and dump raw gump JSON for a few ticks")
+    ap.add_argument("--set-self", metavar="PROP", action="append", default=[], help="`[Set PROP` on own character, e.g. Skills.Tinkering.Base 75")
     ap.add_argument("--stage-economy", action="store_true", help="forge, anvil, vendors, skills, tools on the Minoc ridge (self)")
     a = ap.parse_args(argv)
     body = BridgeBody.spawn(a.host, a.port, a.user, a.password)
@@ -140,6 +144,40 @@ def main(argv: list[str] | None = None) -> int:
         if a.say:
             for line in gm.journal_after(a.say):
                 print("  journal:", line)
+        for prop in a.set_self:
+            print(f"  [Set {prop}: {gm.set_self(prop)}")
+        for item in a.add:
+            print(f"  [AddToPack {item}: {gm.add_to_pack(item)}")
+        if a.pack:
+            raw = body.observe_raw()
+            bp = Observation.from_json(raw).backpack_serial()
+            for i in sorted((i for i in raw["items"] if i.get("container") == bp), key=lambda i: i.get("graphic", 0)):
+                print(f"  pack 0x{i.get('graphic', 0):04X} x{i.get('amount', 1):<3} serial={i.get('serial')}")
+        for probe in a.probe_tool:
+            import json as _json
+
+            from .contract import gump_response, use
+            graphic = int(probe, 16)
+            raw = body.observe_raw()
+            bp = Observation.from_json(raw).backpack_serial()
+            tool = next((i for i in raw["items"] if i.get("graphic") == graphic and i.get("container") == bp), None)
+            print(f"probe tool 0x{graphic:04X}: {('found serial ' + str(tool['serial'])) if tool else 'NOT in pack'}")
+            if tool:
+                body.act(use(tool["serial"]))
+                for t in range(6):
+                    body.pump(300)
+                    raw = body.observe_raw()
+                    js = [(j.get("cliloc"), (j.get("text") or "")[:60]) for j in raw.get("new_journal") or []]
+                    for gd in raw.get("gumps") or []:
+                        lay = gd.get("layout") or ""
+                        els = gd.get("elements") or []
+                        print(f"  t{t} gump serial={gd.get('serial')} id={gd.get('gump_id')} layout[{len(lay)}]={lay[:220]!r}")
+                        print(f"     elements[{len(els)}]: {_json.dumps(els[:6])[:600]}")
+                    if js:
+                        print(f"  t{t} journal={js}")
+                for gd in raw.get("gumps") or []:
+                    body.act(gump_response(gd["serial"], gd["gump_id"], 0))
+                body.pump(300)
         if a.stage_economy:
             for k, v in gm.stage_economy().items():
                 print(f"  {k}: {v}")

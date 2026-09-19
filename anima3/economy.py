@@ -48,8 +48,9 @@ MINE_PRODUCTIVE = frozenset({503043, 503042, *range(1007072, 1007081)})
 MINE_NO_RESOURCE = frozenset({503040})
 MINE_INVALID = frozenset({501862, 500237, 500446})
 PACK_FULL = frozenset({1010481})
-SMELT_OK, SMELT_TOO_SMALL, SMELT_TOO_HARD = 501988, 501987, 501986
+SMELT_OK, SMELT_TOO_SMALL, SMELT_TOO_HARD, SMELT_IMPURE = 501988, 501987, 501986, 501990
 CRAFT_NO_METAL, CRAFT_FAIL, CRAFT_FAIL_NO_LOSS, CRAFT_PROXIMITY = 1044037, 1044043, 1044157, 1044267
+CRAFT_MADE = 1044154  # "You create the item." (CraftGump status line)
 SMITH_GUMP_TITLE, TINKER_GUMP_TITLE = 1044002, 1044007
 SELL_CLILOC = 3_006_104
 
@@ -98,15 +99,19 @@ class EconFacts:
 
 def econ_facts(obs: Observation, memory: dict) -> EconFacts:
     p = obs.player
-    pack = [i for i in obs.items if i.container is not None]
+    unsellable = memory.get("unsellable", set())
+    pack = obs.own_pack()
     ground = [i for i in obs.items if i.container is None]
     f = EconFacts(gold=p.gold, weight_pct=(p.weight / p.weight_max) if p.weight_max else 0.0)
     f.ore = sum(i.amount for i in pack if i.graphic in ORE_GRAPHICS)
     f.ingots = sum(i.amount for i in pack if i.graphic in INGOT_GRAPHICS)
-    f.daggers = sum(i.amount for i in pack if i.graphic == DAGGER_GRAPHIC)
-    f.tongs = sum(i.amount for i in pack if i.graphic in TONGS_GRAPHICS)
+    f.daggers = sum(i.amount for i in pack if i.graphic == DAGGER_GRAPHIC and i.serial not in unsellable)
+    f.tongs = sum(i.amount for i in pack if i.graphic in TONGS_GRAPHICS and i.serial not in unsellable)
+    if f.smith_tool is not None and f.smith_tool.graphic in TONGS_GRAPHICS:
+        f.tongs -= 1  # one pair stays as the smithing tool
     f.pickaxe = next((i for i in pack if i.graphic in PICKAXE_GRAPHICS), None)
-    f.smith_tool = next((i for i in pack if i.graphic in SMITH_TOOL_GRAPHICS), None)
+    f.smith_tool = (next((i for i in pack if i.graphic in TONGS_GRAPHICS), None)
+                    or next((i for i in pack if i.graphic in SMITH_TOOL_GRAPHICS), None))
     f.tinker_tool = next((i for i in pack if i.graphic in TINKER_TOOL_GRAPHICS), None)
     f.forge = min((i for i in ground if i.graphic in FORGE_GRAPHICS), key=lambda i: i.distance, default=None)
     f.anvil = min((i for i in ground if i.graphic in ANVIL_GRAPHICS), key=lambda i: i.distance, default=None)
@@ -187,13 +192,15 @@ def smelt_once(ore_serial: int, forge_serial: int) -> Proc:
     obs = yield from _await(obs, lambda o: o.pending_target, 8)
     if obs is None:
         return "no cursor"
-    before = sum(i.amount for i in obs.items if i.graphic in INGOT_GRAPHICS and i.container is not None)
+    before = sum(i.amount for i in obs.own_pack() if i.graphic in INGOT_GRAPHICS)
     obs = yield target_object(forge_serial)
     for _ in range(10):
-        now = sum(i.amount for i in obs.items if i.graphic in INGOT_GRAPHICS and i.container is not None)
+        now = sum(i.amount for i in obs.own_pack() if i.graphic in INGOT_GRAPHICS)
         cl = _clilocs(obs)
         if now > before or SMELT_OK in cl:
             return "ok"
+        if SMELT_IMPURE in cl:
+            return "ok (impure)"
         if cl & {SMELT_TOO_SMALL, SMELT_TOO_HARD}:
             return "cannot smelt"
         obs = yield None
@@ -201,10 +208,15 @@ def smelt_once(ore_serial: int, forge_serial: int) -> Proc:
 
 
 def craft_once(tool_serial: int, title_cliloc: int, category_btn: int, item_btn: int,
-               output_graphic: int) -> Proc:
-    def count(o: Observation) -> int:
-        return sum(i.amount for i in o.items if i.graphic == output_graphic and i.container is not None)
+               output_graphics) -> Proc:
+    outs = {output_graphics} if isinstance(output_graphics, int) else set(output_graphics)
 
+    def count(o: Observation) -> int:
+        return sum(i.amount for i in o.own_pack() if i.graphic in outs)
+
+    obs = yield None
+    for g in list(obs.gumps):  # a craft gump left open blocks every other tool
+        obs = yield gump_response(g.serial, g.gump_id, 0)
     obs = yield use(tool_serial)
     obs = yield from _await(obs, lambda o: any(g.has_cliloc(title_cliloc) for g in o.gumps), 10)
     if obs is None:
@@ -219,7 +231,11 @@ def craft_once(tool_serial: int, title_cliloc: int, category_btn: int, item_btn:
     obs = yield gump_response(g.serial, g.gump_id, item_btn)
     for _ in range(14):
         cl = _clilocs(obs)
-        if count(obs) > before:
+        # ServUO's CraftGump reports the outcome inside the re-shown gump, not the journal
+        for x in obs.gumps:
+            if x.has_cliloc(title_cliloc):
+                cl |= {c for c in (CRAFT_NO_METAL, CRAFT_FAIL, CRAFT_FAIL_NO_LOSS, CRAFT_PROXIMITY, CRAFT_MADE) if x.has_cliloc(c)}
+        if count(obs) > before or CRAFT_MADE in cl:
             return "ok"
         if CRAFT_NO_METAL in cl:
             return "not enough metal"
@@ -231,7 +247,8 @@ def craft_once(tool_serial: int, title_cliloc: int, category_btn: int, item_btn:
     return "timeout"
 
 
-def sell_once(vendor_serial: int, graphics: set[int]) -> Proc:
+def sell_once(vendor_serial: int, graphics: set[int], memory: dict | None = None, keep: int | None = None) -> Proc:
+    memory = {} if memory is None else memory
     obs = yield popup_request(vendor_serial)
     obs = yield from _await(obs, lambda o: o.popup is not None and o.popup.serial == vendor_serial, 10)
     if obs is None:
@@ -244,8 +261,11 @@ def sell_once(vendor_serial: int, graphics: set[int]) -> Proc:
     obs = yield from _await(obs, lambda o: o.shop_sell is not None and o.shop_sell.vendor == vendor_serial, 12)
     if obs is None:
         return "no sell window"
-    offer = [(i.serial, i.amount) for i in obs.shop_sell.items if i.graphic in graphics]
+    offer = [(i.serial, i.amount) for i in obs.shop_sell.items if i.graphic in graphics and i.serial != keep]
     if not offer:
+        listed = {i.serial for i in obs.shop_sell.items}
+        memory.setdefault("unsellable", set()).update(
+            i.serial for i in obs.own_pack() if i.graphic in graphics and i.serial not in listed)
         return "nothing they want"
     obs = yield sell_items(vendor_serial, offer)
     obs = yield from _await(obs, lambda o: o.player.gold > gold0, 12)
@@ -286,10 +306,10 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
     # 1. sell finished goods when standing at a buying vendor
     if ef.daggers and smith is not None and smith.distance <= REACH:
         out.append(Affordance("sell:daggers", f"Sell your {ef.daggers} daggers to the blacksmith.",
-                              procedure=lambda o, m, v=smith.serial: sell_once(v, {DAGGER_GRAPHIC})))
+                              procedure=lambda o, m, v=smith.serial: sell_once(v, {DAGGER_GRAPHIC}, m)))
     if ef.tongs and tinker is not None and tinker.distance <= REACH:
         out.append(Affordance("sell:tongs", f"Sell your {ef.tongs} tongs to the tinker.",
-                              procedure=lambda o, m, v=tinker.serial: sell_once(v, set(TONGS_GRAPHICS))))
+                              procedure=lambda o, m, v=tinker.serial, k=(ef.smith_tool.serial if ef.smith_tool else None): sell_once(v, set(TONGS_GRAPHICS), m, k)))
     # 2. walk to a vendor once a batch is ready
     if ef.daggers >= batch and smith is not None and smith.distance > REACH:
         out.append(Affordance("goto:blacksmith", "Walk to the blacksmith vendor to sell daggers.",
@@ -301,14 +321,15 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
     if ef.tinker_tool and ef.ingots >= TONGS_COST:
         out.append(Affordance("craft:tongs", f"Craft tongs with the tinker tools (uses {TONGS_COST} ingot; you have {ef.ingots}).",
                               procedure=lambda o, m, t=ef.tinker_tool.serial: craft_once(
-                                  t, TINKER_GUMP_TITLE, TINKER_CATEGORY_TOOLS, TINKER_TONGS, 0x0FBB)))
+                                  t, TINKER_GUMP_TITLE, TINKER_CATEGORY_TOOLS, TINKER_TONGS, TONGS_GRAPHICS)))
     if ef.smith_tool and ef.ingots >= DAGGER_COST and ef.forge_near and ef.anvil_near:
         out.append(Affordance("craft:dagger", f"Forge a dagger at the anvil (uses {DAGGER_COST} ingots; you have {ef.ingots}).",
                               procedure=lambda o, m, t=ef.smith_tool.serial: craft_once(
                                   t, SMITH_GUMP_TITLE, SMITH_CATEGORY_BLADED, SMITH_DAGGER, DAGGER_GRAPHIC)))
     # 4. smelt
-    if ef.ore and ef.forge_near:
-        ore = next(i for i in obs.items if i.graphic in ORE_GRAPHICS and i.container is not None)
+    piles = [i for i in obs.own_pack() if i.graphic in ORE_GRAPHICS and i.amount >= 2]
+    if piles and ef.forge_near:
+        ore = max(piles, key=lambda i: i.amount)
         out.append(Affordance("smelt", f"Smelt your {ef.ore} ore into ingots at the forge.",
                               procedure=lambda o, m, s=ore.serial, f=ef.forge.serial: smelt_once(s, f)))
     if (ef.ore or (ef.ingots >= DAGGER_COST and ef.smith_tool)) and ef.forge is not None and not ef.forge_near:
@@ -322,6 +343,10 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
         else:
             out.append(Affordance("goto:mine", "Walk to the ore vein.",
                                   procedure=lambda o, m: goto(MINE_SPOT, 0, o)))
+    # a verb that just failed waits its backoff out (see Agent: 40 ticks)
+    backoff = memory.get("backoff", {})
+    now = memory.get("tick", 0)
+    out = [a for a in out if backoff.get(a.id, -1) <= now]
     # rule order: sell > goto vendor > craft > smelt > goto forge > mine
     order = ["sell:", "goto:blacksmith", "goto:tinker", "craft:", "smelt", "goto:forge", "mine", "goto:mine"]
     out.sort(key=lambda a: next((k for k, pre in enumerate(order) if a.id.startswith(pre)), 99))
