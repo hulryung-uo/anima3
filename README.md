@@ -158,6 +158,62 @@ Left open: after the fight the idle menu (wander/hold) draws 0.1–0.3 confidenc
 model, so ~95% of post-fight calls fall back to the rule — the survival-mode idle menu
 needs the same "workplace" floor the economy got.
 
+## Village: several characters living together (live)
+
+```bash
+uv run python -m anima3.village --roster anima3m:miner:economy anima3w:warrior:hunt --ticks 2000
+```
+
+One process, one MLX model (forward passes serialized), one Laya triage, one GM. Each
+roster entry is `account:persona:mode`. The GM renames each character to its persona,
+stages it (the ridge economy for a worker; kit, skills and pinned prey on the open ground
+south-west of the ridge for a hunter), hides, then resurrects anyone who dies and respawns
+prey. Every agent runs on its own thread against its own bridge — and hears the others.
+
+Three layers cooperate:
+
+| Layer | Model | Latency | Does |
+|---|---|---|---|
+| triage | **Laya** (421M encoder) | ~40 ms | classifies a heard line — greeting / question / trade / threat — into `reply:` / `ignore:` verbs |
+| decision | **Qwen3-4B, logprob** | ~150 ms | picks one verb from the closed menu; procedures execute it |
+| voice | **Qwen3-4B, generative** | 1–3 s, off-thread | the reply itself; every 150 ticks an in-character *aim* placed in the scene, and a private chronicle |
+
+Every generated line is screened by Laya's AI-voice detector before it is spoken.
+
+### What a run looks like (village #6, 1000 ticks, no deaths)
+
+- **Grimm** (miner): resurrected at 30% HP, bandaged himself to 65% (Healing +0.7), then mined,
+  smelted, forged three daggers and sold them — Mining +3.0, Blacksmith +0.5, Tinkering +0.4.
+- **Ragnar** (sellsword): killed and looted every respawn, gold +106, never below 97% HP.
+- Grimm's chronicle: *"Mined sixteen good veins. Smelted three impure, two clean. Crafted one
+  blade. Mining up a bit. Tools still sharp. Keep going. Work speaks louder than words."*
+- Ragnar's: *"Ridge clear. For now. Mongbat again. Stupid thing. Killed two. Gold adds."*
+
+### Skill progression toward 7×GM
+
+`progression.py` names each profession's seven skills, which verbs train them, and re-orders
+the admissible work so the largest gap trains first; the scene states the gaps. Measured:
+Mining rises ~3 points per 1000 ticks (5 min) at skill ~48; combat raised Wrestling +4.3 and
+Swords +3.1 in one 500-tick fight. Grandmaster is hours away, not minutes — the mechanism is
+what is verified here, not the finish.
+
+### What the shard taught the village (each cost a run)
+
+- **The warrior murdered the miner.** Serial 12475 — the "mongbat" Ragnar fixated on for
+  600 ticks — was Grimm. He had looted a corpse that was not his kill, went **criminal**,
+  and an aggressive warrior attacked him: four of village #5's five deaths. Now only
+  attributed kills are looted and roster members are `friends` who are never threats.
+- **Distance is x/y only.** A mongbat twenty tiles down the cliff read as *adjacent*; the
+  server had no line of sight and never swung. Targets on another level are noted, never chased.
+- **The ridge is a corridor.** Three tiles wide south of the vein; prey staged in it wandered
+  to the miner. Prey now sits on the open ground at (2604,490), pinned (`[Set CantWalk true`).
+- **Pinning pinned the warrior.** He teleported in beside the spawn a tick earlier and was
+  taken for the new mongbat — four runs of "lost" chases before `[Get CantWalk` said `True`.
+- **Weight.** Three staged kits plus loot put him at 252/250 stones: UO refuses every step,
+  and a near-full pack drains a 12-stamina character in two steps. Surplus is put down from 75%.
+- **Staging resets skills.** `[Set Skills.Mining.Base 45` every run erased the gains; the GM now keeps a trained skill.
+- Fresh characters resurrect at ~20% HP: the economy kit includes bandages.
+
 ## Layout
 
 | File | Role |
@@ -169,7 +225,10 @@ needs the same "workplace" floor the economy got.
 | `decision.py` | `Scripted` · `QwenLogprob` (MLX) · `JeffChoice` · `gate()` |
 | `agent.py` | two-rate loop, off-thread decisions, plans, JSONL log |
 | `gm.py` | GM staging over the same bridge |
-| `personas/` | anima v1 YAML personas (miner = Grimm, adventurer = Anima) |
+| `personas/` | YAML personas: miner Grimm, adventurer Anima, warrior Ragnar |
+| `progression.py` | skills, profession GM sets, curriculum ordering |
+| `triage.py` · `speech.py` | Laya speech triage · generated replies, aims, chronicle |
+| `village.py` | several characters, one process, GM staging/resurrection |
 
 ## Not yet
 
