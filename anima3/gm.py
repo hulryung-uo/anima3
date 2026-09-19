@@ -86,10 +86,13 @@ class Gm:
                 return serial
         return None
 
-    def stage_economy(self) -> dict:
-        """Self-stage the Minoc ridge economy: forge, anvil, two vendors, skills, tools."""
+    def stage_economy(self, target: int | None = None, *, workplace: bool = True, skill: int = 45) -> dict:
+        """Stage the Minoc ridge economy. `workplace=True` places forge, anvil and the two
+        pinned vendors unless a forge is already there; the character (`target` serial, or
+        self) gets skills, tools and a teleport to the vein."""
         from .economy import (
             ANVIL_SPOT,
+            FORGE_GRAPHICS,
             FORGE_SPOT,
             MINE_SPOT,
             SMITH_SPOT,
@@ -97,26 +100,33 @@ class Gm:
             TINKER_VENDOR_SPOT,
         )
         report: dict = {}
+        me = int(self.body.ready["player"]["serial"])
+        who = target or me
         self.go(SMITH_SPOT.x, SMITH_SPOT.y, SMITH_SPOT.z)
         obs = self.body.observe()
         report["at"] = (obs.player.pos.x, obs.player.pos.y, obs.player.pos.z)
-        report["forge"] = self.add_item_at("Forge", FORGE_SPOT.x, FORGE_SPOT.y, FORGE_SPOT.z)
-        report["anvil"] = self.add_item_at("Anvil", ANVIL_SPOT.x, ANVIL_SPOT.y, ANVIL_SPOT.z)
-        # `[Add` lands on the ground's own height; a forge on the cliff above the ridge
-        # (z=43, live-caught) is invisible to DefBlacksmithy's anvil/forge check.
-        report["leveled"] = self.level_forge_anvil(SMITH_SPOT.z)
-        report["blacksmith"] = self.add_npc_pinned("Blacksmith", SMITH_VENDOR_SPOT.x, SMITH_VENDOR_SPOT.y, SMITH_VENDOR_SPOT.z)
-        report["tinker"] = self.add_npc_pinned("Tinker", TINKER_VENDOR_SPOT.x, TINKER_VENDOR_SPOT.y, TINKER_VENDOR_SPOT.z)
-        for skill in ("Mining", "Blacksmith", "Tinkering"):
-            report[skill] = self.set_self(f"Skills.{skill}.Base 45")
+        if workplace:
+            if any(i.container is None and i.distance <= 3 and i.graphic in FORGE_GRAPHICS for i in obs.items):
+                report["workplace"] = "already staged"
+            else:
+                report["forge"] = self.add_item_at("Forge", FORGE_SPOT.x, FORGE_SPOT.y, FORGE_SPOT.z)
+                report["anvil"] = self.add_item_at("Anvil", ANVIL_SPOT.x, ANVIL_SPOT.y, ANVIL_SPOT.z)
+                # `[Add` lands on the ground's own height; a forge on the cliff above the ridge
+                # (z=43, live-caught) is invisible to DefBlacksmithy's anvil/forge check.
+                report["leveled"] = self.level_forge_anvil(SMITH_SPOT.z)
+                report["blacksmith"] = self.add_npc_pinned("Blacksmith", SMITH_VENDOR_SPOT.x, SMITH_VENDOR_SPOT.y, SMITH_VENDOR_SPOT.z)
+                report["tinker"] = self.add_npc_pinned("Tinker", TINKER_VENDOR_SPOT.x, TINKER_VENDOR_SPOT.y, TINKER_VENDOR_SPOT.z)
+        for sk in ("Mining", "Blacksmith", "Tinkering"):
+            report[sk] = self.command_on(f"[Set Skills.{sk}.Base {skill}", who)
         for item in ("Pickaxe", "Tongs", "TinkerTools"):
-            report[item] = self.add_to_pack(item)
+            report[item] = self.command_on(f"[AddToPack {item}", who)
+        if who != me:
+            report["teleport"] = self.command_on(f"[Set X {MINE_SPOT.x} Y {MINE_SPOT.y} Z {MINE_SPOT.z}", who)
+            return report
         self.go(MINE_SPOT.x, MINE_SPOT.y, MINE_SPOT.z)
         obs = self.body.observe()
         report["mine_at"] = (obs.player.pos.x, obs.player.pos.y, obs.player.pos.z)
-        report["pack"] = sorted({hex(i.graphic) for i in obs.items if i.container is not None})
-        report["ground_near"] = sorted({hex(i.graphic) for i in obs.items if i.container is None and i.distance <= 4})
-        report["mobiles_near"] = [(m.name, m.distance) for m in obs.mobiles if m.distance <= 6]
+        report["pack"] = sorted({hex(i.graphic) for i in obs.own_pack()})
         return report
 
     def ground_near(self, radius: int = 3) -> list:
@@ -190,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--prey", default="Mongbat"); ap.add_argument("--prey-count", type=int, default=2)
     ap.add_argument("--no-kit", action="store_true", help="stage-warrior: teleport and prey only (character already kitted)")
     ap.add_argument("--stage-economy-for", type=int, metavar="SERIAL", help="skills, tools and a teleport to the vein for another character")
+    ap.add_argument("--stage-economy-for", type=int, metavar="SERIAL", help="skills, tools and a teleport to the vein for another character")
     ap.add_argument("--stage-economy", action="store_true", help="forge, anvil, vendors, skills, tools on the Minoc ridge (self)")
     a = ap.parse_args(argv)
     body = BridgeBody.spawn(a.host, a.port, a.user, a.password)
@@ -248,6 +259,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  rename {a.rename[0]} -> {a.rename[1]}: {gm.command_on(f'[Set Name {a.rename[1]}', int(a.rename[0]))}")
         if a.stage_warrior:
             for k, v in gm.stage_warrior(a.stage_warrior, a.prey, a.prey_count, kit=not a.no_kit).items():
+                print(f"  {k}: {v}")
+        if a.stage_economy_for:
+            for k, v in gm.stage_economy(a.stage_economy_for).items():
                 print(f"  {k}: {v}")
         if a.stage_economy_for:
             for k, v in gm.stage_economy(a.stage_economy_for).items():
