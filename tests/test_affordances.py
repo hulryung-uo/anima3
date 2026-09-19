@@ -41,7 +41,8 @@ def test_peaceful_loot_first_then_greet_then_wander():
     w = FakeBody(); w.add_ground_item(GOLD_GRAPHIC, 1, 0, 5); w.add_person(2, 0)
     got = ids(w)
     assert got[0].startswith("pickup:") and any(g.startswith("say:") for g in got) and any(g.startswith("walk:") for g in got)
-    assert got[-1] == "hold"
+    assert "hold" not in got                      # something worth doing is on the menu
+    assert ids(FakeBody())[-1] == "hold"          # nothing to do: wander or hold
 
 
 def test_scene_mentions_threat_and_health_words():

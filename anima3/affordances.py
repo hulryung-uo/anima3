@@ -337,8 +337,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
                                   procedure=_visit_proc(m.serial)))
     if f.hp_pct < 0.6:
         add_bandage()
+    productive = any(a.id.split(":")[0] in ("pickup", "loot", "equip", "bandage", "reply", "drop", "approach") for a in out)
     for d, name in _step_options(obs)[:4]:
         out.append(Affordance(f"walk:{d}", f"Wander {name}.", (walk(d),)))
-    out.append(HOLD)
-    # Rule order: loot > greet > heal > wander > hold. HOLD first only if nothing else.
+    if not productive:   # "hold" competes with wandering only — never with something worth doing
+        out.append(HOLD)
     return out
