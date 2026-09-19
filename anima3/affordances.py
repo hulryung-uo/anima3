@@ -227,13 +227,15 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     if f.dead:
         return []
     out: list[Affordance] = []
-    # Overloaded: nothing else works until something is put down (UO refuses every step).
-    if p.weight_max and p.weight >= p.weight_max:
+    # Heavy: a pack near its limit drains stamina every step; overloaded, UO refuses the step.
+    heavy = bool(p.weight_max) and p.weight >= 0.75 * p.weight_max
+    if heavy:
         for it in surplus(obs)[:2]:
             amt = it.amount - 100 if it.graphic == 0x0E21 else it.amount
-            out.append(Affordance(f"drop:{it.serial}", f"Put down the {item_name(it) if it.graphic in (GOLD, 0x0E21) else GEAR_GRAPHICS.get(it.graphic, ('item',))[0]} you cannot carry.",
-                                  procedure=_unburden_proc(it, amt)))
-        return out or [Affordance("stuck:overloaded", "You are overloaded and have nothing spare to drop.")]
+            what = item_name(it) if it.graphic in (GOLD, 0x0E21) else GEAR_GRAPHICS.get(it.graphic, ("item",))[0]
+            out.append(Affordance(f"drop:{it.serial}", f"Put down the spare {what}; your pack is too heavy.", procedure=_unburden_proc(it, amt)))
+        if p.weight >= p.weight_max:
+            return out or [Affordance("stuck:overloaded", "You are overloaded and have nothing spare to drop.")]
     black = memory.get("target_blacklist", {})
     friends = memory.get("friends", set())
     now = memory.get("tick", 0)

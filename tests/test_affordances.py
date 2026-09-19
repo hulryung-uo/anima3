@@ -172,3 +172,12 @@ def test_overloaded_offers_only_dropping_surplus():
     ag = Agent(w, P, Scripted(), pump_ms=0)
     ag.run(3)
     assert any(x["type"] == "Drop" and x["container"] == 0xFFFFFFFF for x in w.log)
+
+
+def test_heavy_pack_offers_dropping_alongside_other_verbs():
+    from anima3.contract import Item, Pos
+    w = FakeBody(); w.player.weight = 200; w.player.weight_max = 250
+    w.add_pack_item(0x13FF); w.worn.append(Item(0x9, 0x13FF, 1, Pos(), w.player.serial, 1, 0))
+    obs = w.observe()
+    got = [a.id for a in enumerate_affordances(obs, facts(obs), P, {})]
+    assert got[0].startswith("drop:") and len(got) > 1
