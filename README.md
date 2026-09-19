@@ -135,6 +135,29 @@ Not yet: buying replacement tools when they wear out, banking, more recipes, and
 Player-level worker (the economy ran on the owner account because no monster is
 involved; vendors and crafting treat staff like anyone else).
 
+## Warrior: a Player-level character that hunts, equips, and loots (live)
+
+The GM stages *another* character by serial (`python -m anima3.gm --stage-warrior SERIAL`:
+teleport to anima2's unguarded pocket at 2587,408, Swordsmanship/Tactics/Anatomy/Healing 100,
+Katana + plate + 200 bandages, two Mongbats beside it) while the Player-level account
+plays (`--user anima3p --wait-ticks 40` so the staging lands before the first action).
+
+| Run | Result |
+|---|---|
+| #1 | both mongbats killed (t≈76, 91), min HP 97.5%, no deaths — but `Equip` was chosen 39× (it never took) and nothing was looted |
+| #2, two-packet equip | katana and plate equipped (lift → EquipReq on the item's layer), kills at t=15 and t=43, corpses opened and gold lifted — but gold stayed 1000: a lift is not a pickup |
+| #3, lift → drop into backpack | kills by t=22, **two corpses looted, gold 1024 → 1030**; the 24 came from run #2's lifted gold bouncing into the pack at logout |
+
+What the shard taught here: UO equips in two packets (PickUp then EquipReq — the server
+uses the item's own layer), a pickup is also two packets (PickUp then Drop into the
+backpack), and `corpse_of` death links are transient — remember them or you never loot.
+A procedure that is interrupted by a hostile within 3 tiles (equipping mid-approach)
+simply resumes later; three interruptions, two successes.
+
+Left open: after the fight the idle menu (wander/hold) draws 0.1–0.3 confidence from the
+model, so ~95% of post-fight calls fall back to the rule — the survival-mode idle menu
+needs the same "workplace" floor the economy got.
+
 ## Layout
 
 | File | Role |

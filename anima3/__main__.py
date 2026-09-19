@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sync", action="store_true", help="decide on the tick thread (deterministic; blocks the body)")
     ap.add_argument("--stage-spawn", metavar="KIND", help="live only: `[Add KIND` near the character before playing (owner account)")
     ap.add_argument("--stage-dx", type=int, default=4); ap.add_argument("--stage-dy", type=int, default=0)
+    ap.add_argument("--wait-ticks", type=int, default=0, help="live: pump this many ticks before acting (lets a GM stage this character)")
     ap.add_argument("--economy", action="store_true", help="enable mine/smelt/craft/sell verbs (Minoc ridge)")
     ap.add_argument("--disposition", choices=["pacifist", "defensive", "neutral", "aggressive"], help="override the persona's combat_disposition")
     a = ap.parse_args(argv)
@@ -72,7 +73,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         body = BridgeBody.spawn(a.host, a.port, a.user, a.password, data_dir=a.data_dir, monitor_port=a.monitor)
         pump_ms = a.pump_ms
-        print(f"ready: {body.ready.get('player', {}).get('name')} schema={body.ready.get('schema_version')}")
+        pl = body.ready.get('player', {})
+        print(f"ready: {pl.get('name')} serial={pl.get('serial')} schema={body.ready.get('schema_version')}", flush=True)
+        for _ in range(a.wait_ticks):
+            body.pump(a.pump_ms)
         if a.monitor is not None:
             time.sleep(0.5)
             print(f"monitor: {body.monitor_url or '(not reported yet)'}")

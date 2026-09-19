@@ -113,6 +113,8 @@ class Agent:
         obs = self.body.observe()
         self._last_obs = obs
         self.memory["tick"] = self.tick_no
+        if obs.corpse_of:  # death links are transient; remember our kills' corpses
+            self.memory.setdefault("my_corpses", set()).update(obs.corpse_of)
         self._learn_names(obs)
         f = facts(obs)
         # An active procedure owns the tick unless danger interrupts it.

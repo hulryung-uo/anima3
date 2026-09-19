@@ -19,8 +19,11 @@ from .contract import (
     attack,
     bandage_target,
     direction_toward,
+    drop,
+    equip,
     pick_up,
     say,
+    use,
     walk,
     war_mode,
 )
@@ -43,6 +46,63 @@ class Affordance:
 
 
 HOLD = Affordance("hold", "Do nothing this moment; watch and wait.")
+
+#: Gear worth wearing, by graphic -> (name, equip layer). Layers per ServUO (anima2 live-proven).
+GEAR_GRAPHICS = {0x13FF: ("katana", 0x01), 0x1415: ("plate chest", 0x0D), 0x1411: ("plate legs", 0x04),
+                 0x1410: ("plate arms", 0x13), 0x1413: ("plate gorget", 0x0A), 0x1414: ("plate gloves", 0x07),
+                 0x1412: ("plate helm", 0x06)}
+
+
+def _equip_proc(serial: int, layer: int):
+    """UO equips in two packets: lift the item (PickUp), then EquipReq on the layer."""
+    def proc(obs0, memory):
+        obs = yield pick_up(serial, 1)
+        obs = yield equip(serial, layer)
+        for _ in range(6):
+            if not any(i.serial == serial for i in obs.own_pack()):
+                return "ok"
+            obs = yield None
+        memory.setdefault("equip_failed", set()).add(serial)
+        return "failed"
+    return proc
+CORPSE_GRAPHIC = 0x2006
+GOLD = 0x0EED
+
+
+def _unequipped_gear(obs: Observation, memory: dict):
+    failed = memory.get("equip_failed", set())
+    return [i for i in obs.own_pack() if i.graphic in GEAR_GRAPHICS and i.serial not in failed]
+
+
+def _take_proc(serial: int, amount: int):
+    """A UO pickup is two packets: lift onto the cursor, then drop into the backpack."""
+    def proc(obs0, memory):
+        bp = obs0.backpack_serial()
+        gold0 = obs0.player.gold
+        obs = yield pick_up(serial, amount)
+        obs = yield drop(serial, bp)
+        for _ in range(6):
+            if obs.player.gold > gold0 or any(i.serial == serial for i in obs.own_pack()):
+                return "ok"
+            obs = yield None
+        return "unconfirmed"
+    return proc
+
+
+def _loot_proc(corpse_serial: int):
+    """Open the corpse, then lift its gold and drop it into the backpack."""
+    def proc(obs0, memory):
+        obs = yield use(corpse_serial)
+        for _ in range(8):
+            gold = [i for i in obs.items if i.container == corpse_serial and i.graphic == GOLD]
+            if gold:
+                memory.setdefault("looted", set()).add(corpse_serial)
+                verdict = yield from _take_proc(gold[0].serial, gold[0].amount)(obs, memory)
+                return verdict
+            obs = yield None
+        memory.setdefault("looted", set()).add(corpse_serial)
+        return "empty"
+    return proc
 
 
 def _walkable(obs: Observation, x: int, y: int) -> bool:
@@ -86,6 +146,12 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
             d, name = steps[0]
             out.append(Affordance("flee", f"Run {name}, away from the threat.", (walk(d, run=True),)))
 
+    # Gear first: a sword in the pack is worth one tick even with a threat a few tiles out.
+    gear = _unequipped_gear(obs, memory)
+    if gear and f.hp_pct >= 0.35 and (threat is None or threat.distance > 1):
+        g = gear[0]
+        name, layer = GEAR_GRAPHICS[g.graphic]
+        out.append(Affordance(f"equip:{g.serial}", f"Put on the {name}.", procedure=_equip_proc(g.serial, layer)))
     if threat is not None:
         if f.hp_pct < 0.35:
             add_flee()
@@ -113,10 +179,21 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     # Peaceful surroundings.
     if f.war:
         out.append(Affordance("stand_down", "Leave war mode; the fight is over.", (war_mode(False),)))
+    looted: set[int] = memory.setdefault("looted", set())
+    my_corpses: set[int] = memory.setdefault("my_corpses", set())
+    my_corpses.update(obs.corpse_of)
+    mine = [i for i in obs.items if i.graphic == CORPSE_GRAPHIC and i.container is None
+            and i.serial in my_corpses and i.serial not in looted and i.distance <= 6]
+    for c in sorted(mine, key=lambda i: i.distance)[:1]:
+        if c.distance <= 2:
+            out.append(Affordance(f"loot:{c.serial}", "Loot the corpse of your kill.", procedure=_loot_proc(c.serial)))
+        else:
+            d = direction_toward(p.pos, c.pos)
+            out.append(Affordance(f"loot:{c.serial}", "Walk to the corpse of your kill.", (walk(d),)))
     for it in f.ground_loot[:2]:
         if it.distance <= 2:
             out.append(Affordance(f"pickup:{it.serial}", f"Pick up the {item_name(it)} at your feet.",
-                                  (pick_up(it.serial, it.amount),)))
+                                  procedure=_take_proc(it.serial, it.amount)))
         else:
             d = direction_toward(p.pos, it.pos)
             if _walkable(obs, p.pos.x + DIRECTION_DELTAS[d][0], p.pos.y + DIRECTION_DELTAS[d][1]):

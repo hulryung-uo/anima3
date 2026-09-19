@@ -134,6 +134,34 @@ class Gm:
                 out.append(f"{kind} 0x{i.graphic:04X} at ({i.pos.x},{i.pos.y},{i.pos.z}) -> z={z}: {ok}")
         return out
 
+    HUNTING_SPOT = (2587, 408, 20)   # anima2's calibrated, unguarded pocket near Minoc
+    WARRIOR_SKILLS = ("Swordsmanship", "Tactics", "Anatomy", "Healing")
+    WARRIOR_KIT = ("Katana", "PlateChest", "PlateLegs", "PlateArms", "Bandage 200")
+
+    def stage_warrior(self, target: int, prey: str = "Mongbat", prey_count: int = 2, skill: int = 100, kit: bool = True) -> dict:
+        """Stage another (Player-level) character for a hunt, then put prey beside it."""
+        x, y, z = self.HUNTING_SPOT
+        self.go(x, y, z)
+        me = self.body.observe().player.pos
+        report = {"gm_at": (me.x, me.y, me.z)}
+        report["teleport"] = self.command_on(f"[Set X {me.x} Y {me.y} Z {me.z}", target)
+        for sk in (self.WARRIOR_SKILLS if kit else ()):
+            report[sk] = self.command_on(f"[Set Skills.{sk}.Base {skill}", target)
+        for item in (self.WARRIOR_KIT if kit else ()):
+            report[item] = self.command_on(f"[AddToPack {item}", target)
+        for _ in range(3):
+            self.body.pump(self.pump_ms)
+        obs = self.body.observe()
+        report["target_seen"] = [(m.name, m.distance) for m in obs.mobiles if m.serial == target]
+        spawned = 0
+        for k, (dx, dy) in enumerate(((3, 0), (0, 3), (-3, 0), (0, -3))[:prey_count]):
+            if self.command_at(f"[Add {prey}", me.x + dx, me.y + dy, me.z):
+                spawned += 1
+        report["prey_spawned"] = spawned
+        # the GM steps away so it is not what the prey stands next to
+        self.go(me.x + 8, me.y + 8, me.z)
+        return report
+
     def spawn_near(self, kind: str, dx: int, dy: int) -> tuple[bool, Observation]:
         obs = self.body.observe()
         p = obs.player.pos
@@ -157,6 +185,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--add", metavar="ITEM", action="append", default=[], help="`[AddToPack ITEM` on self")
     ap.add_argument("--probe-tool", metavar="GRAPHIC", action="append", default=[], help="Use the pack tool with this graphic (hex) and dump raw gump JSON for a few ticks")
     ap.add_argument("--set-self", metavar="PROP", action="append", default=[], help="`[Set PROP` on own character, e.g. Skills.Tinkering.Base 75")
+    ap.add_argument("--stage-warrior", type=int, metavar="SERIAL", help="teleport/skill/kit another character at the hunting pocket and spawn prey")
+    ap.add_argument("--prey", default="Mongbat"); ap.add_argument("--prey-count", type=int, default=2)
+    ap.add_argument("--no-kit", action="store_true", help="stage-warrior: teleport and prey only (character already kitted)")
     ap.add_argument("--stage-economy", action="store_true", help="forge, anvil, vendors, skills, tools on the Minoc ridge (self)")
     a = ap.parse_args(argv)
     body = BridgeBody.spawn(a.host, a.port, a.user, a.password)
@@ -211,6 +242,9 @@ def main(argv: list[str] | None = None) -> int:
                 for gd in raw.get("gumps") or []:
                     body.act(gump_response(gd["serial"], gd["gump_id"], 0))
                 body.pump(300)
+        if a.stage_warrior:
+            for k, v in gm.stage_warrior(a.stage_warrior, a.prey, a.prey_count, kit=not a.no_kit).items():
+                print(f"  {k}: {v}")
         if a.stage_economy:
             for k, v in gm.stage_economy().items():
                 print(f"  {k}: {v}")

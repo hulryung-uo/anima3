@@ -241,6 +241,7 @@ class Observation:
     gumps: list[Gump] = field(default_factory=list)
     popup: Popup | None = None
     shop_sell: ShopSell | None = None
+    corpse_of: dict[int, int] = field(default_factory=dict)   # corpse serial -> killed mobile serial
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Observation:
@@ -257,6 +258,7 @@ class Observation:
             gumps=[Gump.from_json(g) for g in d.get("gumps") or []],
             popup=Popup(int(pu.get("serial", 0)), list(pu.get("entries") or [])) if pu else None,
             shop_sell=ShopSell.from_json(ss) if ss else None,
+            corpse_of={int(x.get("corpse", 0)): int(x.get("killed", 0)) for x in d.get("corpse_of") or []},
         )
 
     # --- convenience views -------------------------------------------------
@@ -346,3 +348,13 @@ def popup_select(serial: int, index: int) -> dict:
 
 def sell_items(vendor: int, items: list[tuple[int, int]]) -> dict:
     return {"type": "SellItems", "vendor": int(vendor), "items": [{"serial": int(s), "amount": int(a)} for s, a in items]}
+
+
+def equip(serial: int, layer: int = 1) -> dict:
+    """ServUO's EquipReq uses the item's own layer; `layer` is only what the packet carries."""
+    return {"type": "Equip", "serial": int(serial), "layer": int(layer)}
+
+
+def drop(serial: int, container: int, x: int = 0, y: int = 0, z: int = 0) -> dict:
+    """Finish a lift: put the held item into `container` (a backpack, a bank box)."""
+    return {"type": "Drop", "serial": int(serial), "x": int(x), "y": int(y), "z": int(z), "container": int(container)}

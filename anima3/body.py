@@ -165,6 +165,8 @@ class FakeBody:
     war: bool = False
     blocked: set[tuple[int, int]] = field(default_factory=set)
     log: list[dict] = field(default_factory=list)
+    worn: list[Item] = field(default_factory=list)
+    held: Item | None = None
     _serial_next: int = 0x4000_0000
     combat_target: int | None = None
 
@@ -228,14 +230,19 @@ class FakeBody:
             self.war = bool(action["on"])
         elif t == "Attack":
             self.combat_target = int(action["serial"])
-        elif t == "PickUp":
-            for it in list(self.ground):
-                if it.serial == action["serial"] and chebyshev(p.pos, it.pos) <= 2:
-                    self.ground.remove(it)
-                    if it.graphic == GOLD_GRAPHIC:
-                        p.gold += it.amount
-                    else:
-                        self.pack.append(Item(it.serial, it.graphic, it.amount, Pos(), 0x4000_0001, 0x15, 0))
+        elif t == "PickUp":  # lift onto the cursor; a Drop finishes the move
+            for it in list(self.ground) + list(self.pack):
+                if it.serial == action["serial"] and (it in self.pack or chebyshev(p.pos, it.pos) <= 2):
+                    (self.ground if it in self.ground else self.pack).remove(it)
+                    self.held = it
+        elif t == "Drop":
+            it = self.held
+            if it is not None and it.serial == action["serial"] and action.get("container") == 0x4000_0001:
+                self.held = None
+                if it.graphic == GOLD_GRAPHIC:
+                    p.gold += it.amount
+                else:
+                    self.pack.append(Item(it.serial, it.graphic, it.amount, Pos(), 0x4000_0001, 0x15, 0))
         elif t == "BandageTarget":
             for it in list(self.pack):
                 if it.serial == action["bandage"] and it.graphic == BANDAGE_GRAPHIC:
@@ -246,6 +253,11 @@ class FakeBody:
                     break
         elif t == "Say":
             self.journal.append(Journal(p.serial, p.name, action["text"], 0, 0, 0))
+        elif t == "Equip":
+            it = self.held
+            if it is not None and it.serial == action["serial"]:
+                self.held = None
+                self.worn.append(it)
         elif t == "AllNames":
             pass
         elif t == "Click":

@@ -49,3 +49,36 @@ def test_scene_mentions_threat_and_health_words():
     obs = w.observe(); f = facts(obs)
     s = render(obs, f, "Grimm, a miner")
     assert "Hostiles:" in s and "adjacent" in s and "low" in s
+
+
+def test_equip_offered_when_gear_in_pack_and_no_close_threat():
+    w = FakeBody(); w.add_pack_item(0x13FF)  # a katana in the pack
+    got = ids(w)
+    assert got[0].startswith("equip:")
+    w.add_hostile(1, 0)
+    assert not any(g.startswith("equip:") for g in ids(w))  # not with a hostile adjacent
+
+
+def test_loot_offered_only_for_own_corpse():
+    from anima3.contract import Item, Pos
+    w = FakeBody()
+    obs = w.observe()
+    corpse = Item(0x777, 0x2006, 1, Pos(101, 100, 0), None, 0, 1)
+    obs.items.append(corpse)
+    from anima3.affordances import enumerate_affordances
+    from anima3.scene import facts
+    assert not any(a.id.startswith("loot:") for a in enumerate_affordances(obs, facts(obs), P, {}))
+    obs.corpse_of = {0x777: 0x999}
+    assert any(a.id == "loot:1911" for a in enumerate_affordances(obs, facts(obs), P, {}))
+
+
+def test_equip_procedure_lifts_then_equips_and_confirms():
+    from anima3.agent import Agent
+    from anima3.decision import Scripted
+    w = FakeBody(); w.add_pack_item(0x13FF)
+    ag = Agent(w, Persona(name="W", talkativeness=0), Scripted(), pump_ms=0)
+    ag.run(4)
+    sent = [a for a in w.log if a["type"] != "AllNames"]
+    assert [a["type"] for a in sent[:2]] == ["PickUp", "Equip"] and sent[1]["layer"] == 1
+    assert any(v == "ok" for _, pid, v in ag.proc_log if pid.startswith("equip:"))
+    assert not any(i.graphic == 0x13FF for i in w.pack) and w.worn
