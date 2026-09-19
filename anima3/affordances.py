@@ -174,7 +174,11 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         if f.hp_pct < 0.7:
             add_bandage()
         out.append(HOLD)
-        return out
+        # A threat that is not close does not stop a healthy character's day: the economy
+        # verbs are appended by the agent after this menu, so only return early when it is.
+        if threat.distance <= 3 or f.hp_pct < 0.7:
+            return out
+        memory["threat_far"] = True
 
     # Peaceful surroundings.
     if f.war:
@@ -215,6 +219,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         if m.distance <= 4 and m.serial not in greeted and persona.talkativeness > 0:
             for k, line in enumerate(persona.speech_examples[:2]):
                 out.append(Affordance(f"say:{m.serial}:{k}", f'Say to {m.name or "them"}: "{line}"', (say(line),)))
+        elif 4 < m.distance <= 12 and m.serial not in greeted and persona.talkativeness > 0 and not memory.get("economy"):
+            d = direction_toward(p.pos, m.pos)
+            out.append(Affordance(f"visit:{m.serial}", f"Walk over to {m.name or 'the person'} nearby.", (walk(d),)))
     if f.hp_pct < 0.6:
         add_bandage()
     for d, name in _step_options(obs)[:4]:

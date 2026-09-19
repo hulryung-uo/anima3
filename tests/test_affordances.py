@@ -82,3 +82,20 @@ def test_equip_procedure_lifts_then_equips_and_confirms():
     assert [a["type"] for a in sent[:2]] == ["PickUp", "Equip"] and sent[1]["layer"] == 1
     assert any(v == "ok" for _, pid, v in ag.proc_log if pid.startswith("equip:"))
     assert not any(i.graphic == 0x13FF for i in w.pack) and w.worn
+
+
+def test_far_threat_does_not_stop_a_healthy_worker():
+    w = FakeBody(); w.add_hostile(5, 0)
+    mem = {}
+    obs = w.observe()
+    got = [a.id for a in enumerate_affordances(obs, facts(obs), Persona(name="G", combat_disposition="pacifist"), mem)]
+    assert mem.get("threat_far") is True and "flee" in got
+    w2 = FakeBody(); w2.add_hostile(2, 0); mem2 = {}
+    obs2 = w2.observe(); enumerate_affordances(obs2, facts(obs2), Persona(name="G", combat_disposition="pacifist"), mem2)
+    assert not mem2.get("threat_far")
+
+
+def test_visit_offered_for_a_person_in_the_middle_distance():
+    w = FakeBody(); w.add_person(7, 0, "Grimm")
+    got = ids(w)
+    assert any(g.startswith("visit:") for g in got)

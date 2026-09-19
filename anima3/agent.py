@@ -63,6 +63,7 @@ class Agent:
         self._speech_thread: threading.Thread | None = None
         self.economy, self.proc_max_ticks = economy, proc_max_ticks
         self.profession = persona.profession or "adventurer"
+        self.memory["economy"] = economy
         self.skill_log: list[tuple[int, dict[str, float]]] = []   # (tick, {skill: +delta})
         self._prev_obs = None
         self._proc: tuple[str, Any, int] | None = None   # (affordance id, generator, started tick)
@@ -121,7 +122,7 @@ class Agent:
         obs = self.body.observe()
         self._hear(obs)
         if self._prev_obs is not None and obs.skills:
-            d = training_delta(self._prev_obs, obs)
+            d = {k: v for k, v in training_delta(self._prev_obs, obs).items() if abs(v) < 5.0}  # > 5 in a tick is GM staging
             if d:
                 self.skill_log.append((self.tick_no, d))
         self._prev_obs = obs if obs.skills else self._prev_obs
@@ -157,7 +158,8 @@ class Agent:
             self._proc = None
         affs = enumerate_affordances(obs, f, self.persona, self.memory)
         econ_lines: list[str] = []
-        if self.economy and econ_facts is not None and not f.hostiles and not f.dead:
+        far = self.memory.pop("threat_far", False)
+        if self.economy and econ_facts is not None and (not f.hostiles or far) and not f.dead:
             ef = econ_facts(obs, self.memory)
             econ = economy_affordances(obs, ef, self.memory)
             econ_lines = econ_scene(ef)
