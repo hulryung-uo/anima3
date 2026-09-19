@@ -213,11 +213,16 @@ numbers as a direction, not a verdict.
 
 ### Skill progression toward 7×GM
 
-`progression.py` names each profession's seven skills, which verbs train them, and re-orders
-the admissible work so the largest gap trains first; the scene states the gaps. Measured:
-Mining rises ~3 points per 1000 ticks (5 min) at skill ~48; combat raised Wrestling +4.3 and
-Swords +3.1 in one 500-tick fight. Grandmaster is hours away, not minutes — the mechanism is
-what is verified here, not the finish.
+`progression.py` names each profession's seven skills — all of them reachable by verbs this
+brain has: work skills by the economy and combat, the rest (ArmsLore, ItemID, Hiding,
+Meditation, Anatomy…) by `train:<Skill>` practice verbs that invoke the skill (`UseSkill`)
+and target gear or a bystander when the skill asks. The curriculum re-orders admissible work
+so the largest gap trains first; the scene states the gaps; a hunter practises between fights.
+A miner whose pickaxe wears out (50 swings) tinkers a new one from four ingots.
+
+Village #10, 3000 ticks (~25 min, no deaths): Grimm Mining 52.0 → **55.3**, gold +483;
+Ragnar Swords +1.9, **ArmsLore +9.5, Hiding +9.6** (idle time turned into practice), gold +293.
+Grandmaster is hours of running away, not minutes — the mechanism is what is verified here.
 
 ### What the shard taught the village (each cost a run)
 
