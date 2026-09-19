@@ -63,7 +63,6 @@ class Agent:
         self._speech_thread: threading.Thread | None = None
         self.economy, self.proc_max_ticks = economy, proc_max_ticks
         self.profession = persona.profession or "adventurer"
-        self.memory["economy"] = economy
         self.skill_log: list[tuple[int, dict[str, float]]] = []   # (tick, {skill: +delta})
         self._prev_obs = None
         self._proc: tuple[str, Any, int] | None = None   # (affordance id, generator, started tick)
@@ -73,7 +72,7 @@ class Agent:
         self.deadline_s, self.pump_ms = deadline_s, pump_ms
         self.sync = (client.name == "scripted") if sync is None else sync
         self.log_path = Path(log_path) if log_path else None
-        self.memory: dict = {}
+        self.memory: dict = {"economy": economy}
         self.tick_no = 0
         self.reports: list[TickReport] = []
         self._gen = 0
