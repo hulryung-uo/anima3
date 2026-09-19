@@ -57,14 +57,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--stage-spawn", metavar="KIND", help="live only: `[Add KIND` near the character before playing (owner account)")
     ap.add_argument("--stage-dx", type=int, default=4); ap.add_argument("--stage-dy", type=int, default=0)
     ap.add_argument("--wait-ticks", type=int, default=0, help="live: pump this many ticks before acting (lets a GM stage this character)")
+    ap.add_argument("--triage", default="off", help="off | auto | laya | keywords — classify heard speech into social verbs")
+    ap.add_argument("--speech", action="store_true", help="generate in-character replies with the local model (screened by triage)")
     ap.add_argument("--economy", action="store_true", help="enable mine/smelt/craft/sell verbs (Minoc ridge)")
     ap.add_argument("--disposition", choices=["pacifist", "defensive", "neutral", "aggressive"], help="override the persona's combat_disposition")
     a = ap.parse_args(argv)
 
     persona = Persona.load(a.persona)
+    triage = None
+    if a.triage != "off":
+        from .triage import build_triage
+        triage = build_triage(a.triage)
+        if hasattr(triage, "warmup"):
+            import time as _t
+            t0 = _t.time(); triage.warmup(); print(f"triage: {triage.name} ready in {_t.time() - t0:.0f}s")
     if a.disposition:
         persona.combat_disposition = a.disposition
     client = build_client(a.backend)
+    speech = None
+    if a.speech:
+        from .speech import QwenSpeech
+        speech = QwenSpeech(client, triage)
     if hasattr(client, "warmup"):
         print(f"warmup: {client.name} loaded in {client.warmup():.0f} ms")
     if a.offline:
@@ -86,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             near = ", ".join(f"{m.name or '?'}@{m.distance}" for m in obs.mobiles[:4]) or "nobody"
             print(f"staged: [Add {a.stage_spawn} → cursor={'yes' if ok else 'NO'}; nearby: {near}")
     agent = Agent(body, persona, client, decide_every=a.decide_every, threshold=a.threshold,
-                  pump_ms=pump_ms, log_path=a.log, sync=True if a.sync else None, economy=a.economy)
+                  pump_ms=pump_ms, log_path=a.log, sync=True if a.sync else None, economy=a.economy, triage=triage, speech=speech)
     print(f"anima3: {persona.who} | backend={client.name} | {'offline:' + a.offline if a.offline else a.host}")
     try:
         agent.run(a.ticks, on_tick=None if a.quiet else _print)

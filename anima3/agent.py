@@ -25,6 +25,7 @@ from .decision import Admitted, Decision, DecisionClient, gate
 from .persona import Persona
 from .progression import curriculum_key, gm_count, progress_scene, training_delta
 from .scene import facts, render
+from .triage import addressed_to_me
 
 try:
     from .economy import econ_facts, econ_scene, economy_affordances
@@ -55,8 +56,11 @@ class Agent:
         self, body: Body, persona: Persona, client: DecisionClient, *,
         decide_every: int = 4, plan_ticks: int = 4, threshold: float = 0.35, deadline_s: float = 1.5,
         pump_ms: int = 250, log_path: str | Path | None = None, sync: bool | None = None,
-        economy: bool = False, proc_max_ticks: int = 60,
+        economy: bool = False, proc_max_ticks: int = 60, triage=None, speech=None,
     ) -> None:
+        self.triage, self.speech = triage, speech
+        self.speech_log: list[tuple[int, str, str | None, str]] = []   # (tick, heard, said, reason)
+        self._speech_thread: threading.Thread | None = None
         self.economy, self.proc_max_ticks = economy, proc_max_ticks
         self.profession = persona.profession or "adventurer"
         self.skill_log: list[tuple[int, dict[str, float]]] = []   # (tick, {skill: +delta})
@@ -115,6 +119,7 @@ class Agent:
         if self.tick_no % 20 == 1:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
+        self._hear(obs)
         if self._prev_obs is not None and obs.skills:
             d = training_delta(self._prev_obs, obs)
             if d:
@@ -174,6 +179,7 @@ class Agent:
         options = {a.id: a.description for a in affs}
         by_id = {a.id: a for a in affs}
         scene = render(obs, f, self.persona)
+        self._last_scene = scene
         if econ_lines:
             scene += "\n" + "\n".join(econ_lines)
         sig = self._signature(len(f.hostiles), f.hp_pct, options)
@@ -215,6 +221,41 @@ class Agent:
         self.reports.append(rep)
         return rep
 
+    def _hear(self, obs) -> None:
+        """Triage speech from nearby people into `memory['heard_pending']` (once each)."""
+        if self.triage is None:
+            return
+        me = obs.player.serial
+        near = {m.serial: m for m in obs.mobiles if m.serial != me}
+        seen: set = self.memory.setdefault("heard_seen", set())
+        for j in obs.new_journal:
+            if j.serial not in near or not j.text or (j.serial, j.text) in seen:
+                continue
+            seen.add((j.serial, j.text))
+            m = near[j.serial]
+            if not addressed_to_me(j.text, obs.player.name, m.distance) and m.distance > 2:
+                continue
+            tr = self.triage.classify(j.text)
+            self.memory.setdefault("heard_pending", []).append(
+                {"serial": j.serial, "name": m.name or self.memory.get("names", {}).get(j.serial, ""), "text": j.text,
+                 "kind": tr.kind, "conf": tr.confidence, "tick": self.tick_no})
+        # a pending line older than 20 ticks is stale
+        self.memory["heard_pending"] = [h for h in self.memory.get("heard_pending", []) if self.tick_no - h["tick"] <= 20]
+
+    def _reply(self, h: dict, intent: str, scene: str) -> None:
+        """Generate one line off-thread; the body says it when it arrives."""
+        if self.speech is None:
+            return
+
+        def work() -> None:
+            line = self.speech.say(self.persona, scene, h["text"], intent)
+            self.speech_log.append((self.tick_no, h["text"], line.text, line.reason))
+            if line.text:
+                self.memory.setdefault("say_pending", []).append(line.text)
+
+        self._speech_thread = threading.Thread(target=work, daemon=True)
+        self._speech_thread.start()
+
     def _learn_names(self, obs) -> None:
         """Names arrive as journal lines answering a Click; cache them by serial and
         click one unnamed nearby mobile per tick so the scene stops saying 'a creature'."""
@@ -234,6 +275,19 @@ class Agent:
                 break
 
     def _execute(self, aff: Affordance, f) -> None:
+        from .contract import say as _say
+        for text in self.memory.pop("say_pending", []):   # lines generated earlier land now
+            self.body.act(_say(text))
+        if aff.id.startswith(("reply:", "ignore:")):
+            serial = int(aff.id.split(":")[1])
+            pending = self.memory.get("heard_pending", [])
+            h = next((x for x in pending if x["serial"] == serial), None)
+            self.memory["heard_pending"] = [x for x in pending if x["serial"] != serial]
+            if aff.id.startswith("reply:") and h is not None:
+                intent = {"wary": "tell them to keep away, curtly", "answer": "answer what they asked, briefly",
+                          "greet": "greet them back in your own way", "remark": "react to what they said"}[aff.id.split(":")[2]]
+                self._reply(h, intent, self._last_scene)
+            return
         if aff.procedure is not None:
             gen = aff.procedure(self._last_obs, self.memory)
             try:
@@ -300,5 +354,6 @@ class Agent:
                 "avg_decision_ms": round(sum(x.ms for x in decided) / len(decided), 0) if decided else None,
                 "procedures": [f"{t}:{pid}={v}" for t, pid, v in self.proc_log][-40:],
                 "skill_gains": self.skill_gains(),
+                "speech": [(t, h[:40], (s_ or "")[:60], r) for t, h, s_, r in self.speech_log][-10:],
                 "gm": gm_count(self._last_obs, self.profession) if self._last_obs is not None and self._last_obs.skills else None,
                 "reasons": reasons}

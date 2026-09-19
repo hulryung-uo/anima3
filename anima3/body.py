@@ -186,6 +186,9 @@ class FakeBody:
         self.mobiles.append(m)
         return m
 
+    def hear(self, speaker: FakeMobile, text: str) -> None:
+        self.journal.append(Journal(speaker.serial, speaker.name, text, 0, 0, 0))
+
     def add_ground_item(self, graphic: int, dx: int, dy: int, amount: int = 1) -> Item:
         self._serial_next += 1
         it = Item(self._serial_next, graphic, amount, Pos(self.player.pos.x + dx, self.player.pos.y + dy), None, 0, 0)
