@@ -283,7 +283,9 @@ class Agent:
             pending = self.memory.get("heard_pending", [])
             h = next((x for x in pending if x["serial"] == serial), None)
             self.memory["heard_pending"] = [x for x in pending if x["serial"] != serial]
-            if aff.id.startswith("reply:") and h is not None:
+            last: dict = self.memory.setdefault("replied_at", {})
+            if aff.id.startswith("reply:") and h is not None and self.tick_no - last.get(serial, -999) >= 30:
+                last[serial] = self.tick_no
                 intent = {"wary": "tell them to keep away, curtly", "answer": "answer what they asked, briefly",
                           "greet": "greet them back in your own way", "remark": "react to what they said"}[aff.id.split(":")[2]]
                 self._reply(h, intent, self._last_scene)

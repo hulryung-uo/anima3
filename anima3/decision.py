@@ -15,6 +15,10 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 _SYSTEM = "You are a decision function for a character in Ultima Online. Reply with exactly one letter."
+#: One MLX model serves every agent in the process; forward passes are serialized.
+import threading
+
+MLX_LOCK = threading.Lock()
 
 
 @dataclass
@@ -91,10 +95,11 @@ class QwenLogprob:
         msgs = [{"role": "system", "content": _SYSTEM},
                 {"role": "user", "content": f"Situation:\n{scene}\n\nQuestion: {question}\nOptions:\n{menu}\n\nAnswer:"}]
         ids = self._tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False)
-        logits = self._model(mx.array([ids]))[:, -1, :]
-        lp = (logits - mx.logsumexp(logits, keepdims=True)).squeeze(0)
-        vals = mx.array([lp[i].item() for i in self._letter_ids(letters)])
-        vals = mx.exp(vals - mx.logsumexp(vals)).tolist()
+        with MLX_LOCK:
+            logits = self._model(mx.array([ids]))[:, -1, :]
+            lp = (logits - mx.logsumexp(logits, keepdims=True)).squeeze(0)
+            vals = mx.array([lp[i].item() for i in self._letter_ids(letters)])
+            vals = mx.exp(vals - mx.logsumexp(vals)).tolist()
         return _finish({k: float(v) for k, v in zip(keys, vals)}, t0, self.name, prompt_tokens=len(ids))
 
 

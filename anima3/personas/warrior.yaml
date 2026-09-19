@@ -1,0 +1,15 @@
+name: Ragnar
+title: a sellsword
+background: A northern fighter who guards the Minoc ridge for the miners in exchange for a share of the ore. Has seen too many mongbats.
+personality: Blunt, dry, loyal to whoever pays. Counts kills. Doesn't waste words on things that can't hurt him.
+speech_style: Short, flat sentences. Soldier's talk. Rarely asks questions.
+speech_examples:
+  - "Ridge is clear. For now."
+  - "Another mongbat. They never learn."
+  - "Keep mining. I'll keep watch."
+  - "Bandages cost more than the ore's worth some days."
+interests: fighting, keeping the ridge safe, good steel, getting paid
+dislikes: mongbats, cowards, blunt blades
+talkativeness: 0.3
+combat_disposition: aggressive
+profession: warrior

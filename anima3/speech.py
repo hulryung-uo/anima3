@@ -53,7 +53,8 @@ class QwenSpeech:
         user += f"What you want to do: {intent}\nYour line:"
         msgs = [{"role": "system", "content": sys_}, {"role": "user", "content": user}]
         prompt = self._dc._tok.apply_chat_template(msgs, add_generation_prompt=True, enable_thinking=False, tokenize=False)
-        with self._lock:
+        from .decision import MLX_LOCK
+        with MLX_LOCK:
             out = generate(self._dc._model, self._dc._tok, prompt=prompt, max_tokens=40, verbose=False,
                            sampler=make_sampler(temp=0.7))
         text = clean(out)

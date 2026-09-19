@@ -189,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--stage-warrior", type=int, metavar="SERIAL", help="teleport/skill/kit another character at the hunting pocket and spawn prey")
     ap.add_argument("--prey", default="Mongbat"); ap.add_argument("--prey-count", type=int, default=2)
     ap.add_argument("--no-kit", action="store_true", help="stage-warrior: teleport and prey only (character already kitted)")
+    ap.add_argument("--stage-economy-for", type=int, metavar="SERIAL", help="skills, tools and a teleport to the vein for another character")
     ap.add_argument("--stage-economy", action="store_true", help="forge, anvil, vendors, skills, tools on the Minoc ridge (self)")
     a = ap.parse_args(argv)
     body = BridgeBody.spawn(a.host, a.port, a.user, a.password)
@@ -247,6 +248,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  rename {a.rename[0]} -> {a.rename[1]}: {gm.command_on(f'[Set Name {a.rename[1]}', int(a.rename[0]))}")
         if a.stage_warrior:
             for k, v in gm.stage_warrior(a.stage_warrior, a.prey, a.prey_count, kit=not a.no_kit).items():
+                print(f"  {k}: {v}")
+        if a.stage_economy_for:
+            for k, v in gm.stage_economy(a.stage_economy_for).items():
                 print(f"  {k}: {v}")
         if a.stage_economy:
             for k, v in gm.stage_economy().items():
