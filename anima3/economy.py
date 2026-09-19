@@ -14,12 +14,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .contract import (
-    DIRECTION_DELTAS,
     Item,
     Observation,
     Pos,
     chebyshev,
-    direction_toward,
     gump_response,
     popup_request,
     popup_select,
@@ -27,7 +25,7 @@ from .contract import (
     target_ground,
     target_object,
     use,
-    walk,
+    walk_to,
 )
 
 # --- Items (graphics) ----------------------------------------------------------
@@ -273,25 +271,33 @@ def sell_once(vendor_serial: int, graphics: set[int], memory: dict | None = None
     return "ok" if obs is not None else "unconfirmed"
 
 
-def goto(target: Pos, reach: int, obs0: Observation) -> Proc:
+def goto(target: Pos, reach: int, obs0: Observation, *, max_ticks: int = 400) -> Proc:
+    """Walk with the core's A* (`WalkTo`; `pump` drives it, doors included).
+
+    The route is re-issued whenever distance stops falling for a while — the core
+    drops a route silently when it finds no path — and abandoned after three
+    re-issues without progress."""
     obs = obs0
-    for _ in range(60):
-        p = obs.player.pos
-        if chebyshev(p, target) <= reach:
+    best = chebyshev(obs.player.pos, target)
+    stale = 0
+    reissues = 0
+    obs = yield walk_to(target.x, target.y)
+    for _ in range(max_ticks):
+        d = chebyshev(obs.player.pos, target)
+        if d <= reach:
             return "arrived"
-        d = direction_toward(p, target)
-        dx, dy = DIRECTION_DELTAS[d]
-        t = obs.terrain
-        if t is not None and t.walkable(p.x + dx, p.y + dy) is False:
-            # try the two neighbouring directions
-            for alt in ((d + 1) % 8, (d - 1) % 8):
-                ax, ay = DIRECTION_DELTAS[alt]
-                if t.walkable(p.x + ax, p.y + ay) is not False:
-                    d = alt
-                    break
-            else:
+        if d < best:
+            best, stale = d, 0
+        else:
+            stale += 1
+        if stale >= 12:
+            reissues += 1
+            if reissues > 3:
                 return "blocked"
-        obs = yield walk(d, run=True)
+            stale = 0
+            obs = yield walk_to(target.x, target.y)
+            continue
+        obs = yield None
     return "gave up"
 
 

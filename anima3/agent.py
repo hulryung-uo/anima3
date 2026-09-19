@@ -129,7 +129,8 @@ class Agent:
         # An active procedure owns the tick unless danger interrupts it.
         if self._proc is not None:
             pid, gen, started = self._proc
-            interrupted = f.dead or (f.hostiles and f.hostiles[0].distance <= 3) or self.tick_no - started > self.proc_max_ticks
+            limit = self.proc_max_ticks * (8 if pid.startswith("goto:") else 1)  # a long walk is legitimate
+            interrupted = f.dead or (f.hostiles and f.hostiles[0].distance <= 3) or self.tick_no - started > limit
             if not interrupted:
                 rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, chosen=pid, reason="procedure")
                 try:

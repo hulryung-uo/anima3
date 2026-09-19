@@ -167,6 +167,7 @@ class FakeBody:
     log: list[dict] = field(default_factory=list)
     worn: list[Item] = field(default_factory=list)
     held: Item | None = None
+    route: tuple[int, int] | None = None
     _serial_next: int = 0x4000_0000
     combat_target: int | None = None
 
@@ -226,6 +227,8 @@ class FakeBody:
             nx, ny = p.pos.x + dx, p.pos.y + dy
             if (nx, ny) not in self.blocked and not any(m.pos == Pos(nx, ny, 0) and m.hits > 0 for m in self.mobiles):
                 p.pos = Pos(nx, ny, 0)
+        elif t == "WalkTo":
+            self.route = (int(action["x"]), int(action["y"]))
         elif t == "WarMode":
             self.war = bool(action["on"])
         elif t == "Attack":
@@ -271,6 +274,15 @@ class FakeBody:
         p = self.player
         if p.dead:
             return 0
+        if self.route is not None:  # one A* step per pump, greedy is fine offline
+            tx, ty = self.route
+            if (tx, ty) == (p.pos.x, p.pos.y):
+                self.route = None
+            else:
+                d = direction_toward(p.pos, Pos(tx, ty, 0))
+                dx, dy = DIRECTION_DELTAS[d]
+                if (p.pos.x + dx, p.pos.y + dy) not in self.blocked:
+                    p.pos = Pos(p.pos.x + dx, p.pos.y + dy, 0)
         # our swing
         if self.war and self.combat_target is not None:
             for m in self.mobiles:

@@ -114,3 +114,22 @@ def test_economy_menu_never_empties_and_returns_to_the_ridge():
     o2 = obs(pos=MINE_SPOT, items=[])          # no pickaxe at all
     ids2 = [a.id for a in economy_affordances(o2, econ_facts(o2, {}), {})]
     assert ids2 == ["wait:work"]
+
+
+def test_goto_uses_walkto_and_reissues_when_stalled():
+    from anima3.economy import goto
+    o = obs(pos=Pos(2600, 474, 20))
+    gen = goto(SMITH_SPOT, 0, o)
+    first = next(gen)
+    assert first == {"type": "WalkTo", "x": SMITH_SPOT.x, "y": SMITH_SPOT.y}
+    sent = [first]
+    try:
+        for _ in range(13):        # no movement at all -> a re-issue after 12 stale ticks
+            sent.append(gen.send(o))
+    except StopIteration:
+        pass
+    assert sum(1 for a in sent if a and a["type"] == "WalkTo") == 2
+    try:
+        gen.send(obs(pos=SMITH_SPOT))
+    except StopIteration as done:
+        assert done.value == "arrived"
