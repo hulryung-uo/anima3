@@ -202,6 +202,15 @@ sell→hold 45, equip→hold 59). The genuine re-orderings were in the economy m
 (craft→mine 19, flee→mine 10, craft→smelt 8). `hold` now competes only with wandering.
 Median confidence is 1.00: the logprob head is overconfident and still uncalibrated.
 
+`python -m anima3.calibrate` labels each admitted decision by a proxy outcome (over the next 30
+ticks: gold or a skill point gained, or a threat survived without losing a tenth of health) and
+fits a temperature. On 505 decisions: base rate 0.35, **ECE 0.585 raw** — decisions made at
+confidence ≥ 0.9 were good 39% of the time, at 0.7–0.9 only 5%. Temperature scaling reaches 0.30
+at best. The confidence measures how clearly the model read the menu, not whether the pick will
+pay off; a head trained on outcomes is what would change that, and these logs are its dataset.
+The label is a crude proxy (procedures outlast the horizon; `hold` never scores), so treat the
+numbers as a direction, not a verdict.
+
 ### Skill progression toward 7×GM
 
 `progression.py` names each profession's seven skills, which verbs train them, and re-orders
