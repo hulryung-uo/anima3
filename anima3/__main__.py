@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--threshold", type=float, default=0.35); ap.add_argument("--decide-every", type=int, default=4)
     ap.add_argument("--log", default=".logs/run.jsonl"); ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--sync", action="store_true", help="decide on the tick thread (deterministic; blocks the body)")
+    ap.add_argument("--stage-spawn", metavar="KIND", help="live only: `[Add KIND` near the character before playing (owner account)")
+    ap.add_argument("--stage-dx", type=int, default=4); ap.add_argument("--stage-dy", type=int, default=0)
     a = ap.parse_args(argv)
 
     persona = Persona.load(a.persona)
@@ -68,6 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         if a.monitor is not None:
             time.sleep(0.5)
             print(f"monitor: {body.monitor_url or '(not reported yet)'}")
+        if a.stage_spawn:
+            from .gm import Gm
+            ok, obs = Gm(body).spawn_near(a.stage_spawn, a.stage_dx, a.stage_dy)
+            near = ", ".join(f"{m.name or '?'}@{m.distance}" for m in obs.mobiles[:4]) or "nobody"
+            print(f"staged: [Add {a.stage_spawn} → cursor={'yes' if ok else 'NO'}; nearby: {near}")
     agent = Agent(body, persona, client, decide_every=a.decide_every, threshold=a.threshold,
                   pump_ms=pump_ms, log_path=a.log, sync=True if a.sync else None)
     print(f"anima3: {persona.who} | backend={client.name} | {'offline:' + a.offline if a.offline else a.host}")
