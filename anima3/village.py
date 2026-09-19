@@ -25,7 +25,8 @@ from .economy import MINE_SPOT
 from .gm import Gm
 from .persona import Persona
 
-PREY_SPOT = Pos(2609, 480, 20)      # anima2's calibrated prey spot: 6 tiles from the vein
+PREY_SPOT = Pos(2604, 490, 20)      # the open ground south-west of the ridge: 16 tiles from the vein, off the corridor
+WARRIOR_STAND = Pos(2605, 488, 20)
 
 
 @dataclass
@@ -49,7 +50,7 @@ def parse_roster(specs: list[str]) -> list[Member]:
 def spawn_prey(gm: Gm, prey: str, count: int) -> int:
     """Pinned prey (anima2's approach): it cannot wander to the miner or fall off the cliff."""
     n = 0
-    for dx, dy in ((2, 2), (-2, 2), (2, -2), (-2, -2))[:count]:
+    for dx, dy in ((2, 2), (-2, 2), (2, -1), (-2, -1))[:count]:
         if gm.add_npc_pinned(prey, PREY_SPOT.x + dx, PREY_SPOT.y + dy, PREY_SPOT.z) is not None:
             n += 1
     return n
@@ -61,7 +62,7 @@ def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
         rep.update(gm.stage_economy(m.serial))
     elif m.mode == "hunt":
         gm.go(PREY_SPOT.x, PREY_SPOT.y, PREY_SPOT.z)
-        rep["teleport"] = gm.command_on(f"[Set X {PREY_SPOT.x} Y {PREY_SPOT.y} Z {PREY_SPOT.z}", m.serial)
+        rep["teleport"] = gm.command_on(f"[Set X {WARRIOR_STAND.x} Y {WARRIOR_STAND.y} Z {WARRIOR_STAND.z}", m.serial)
         for sk in Gm.WARRIOR_SKILLS:
             rep[sk] = gm.command_on(f"[Set Skills.{sk}.Base 100", m.serial)
         obs = m.body.observe()

@@ -140,7 +140,9 @@ class Agent:
         if self._proc is not None:
             pid, gen, started = self._proc
             limit = self.proc_max_ticks * (8 if pid.startswith("goto:") else 1)  # a long walk is legitimate
-            danger = bool(f.hostiles and f.hostiles[0].distance <= 3) and not pid.startswith("attack:")  # closing in is the chase's goal
+            black = self.memory.get("target_blacklist", {})
+            live = [m for m in f.hostiles if black.get(m.serial, -1) <= self.tick_no]   # the same threats the menu sees
+            danger = bool(live and live[0].distance <= 3) and not pid.startswith("attack:")  # closing in is the chase's goal
             interrupted = f.dead or danger or f.hp_pct < 0.35 or self.tick_no - started > limit
             if not interrupted:
                 rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, chosen=pid, reason="procedure")

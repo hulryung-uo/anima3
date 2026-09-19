@@ -76,10 +76,10 @@ class Gm:
         before = {m.serial for m in self.body.observe().mobiles}
         if not self.command_at(f"[Add {kind}", x, y, z):
             return None
-        for _ in range(6):
+        for _ in range(10):
             self.body.pump(self.pump_ms)
             obs = self.body.observe()
-            new = [m for m in obs.mobiles if m.serial not in before and chebyshev(m.pos, type(m.pos)(x, y, z)) <= 2]
+            new = [m for m in obs.mobiles if m.serial not in before and chebyshev(m.pos, type(m.pos)(x, y, z)) <= 3]
             if new:
                 serial = new[0].serial
                 self.command_on("[Set CantWalk true", serial)
@@ -118,7 +118,7 @@ class Gm:
                 report["tinker"] = self.add_npc_pinned("Tinker", TINKER_VENDOR_SPOT.x, TINKER_VENDOR_SPOT.y, TINKER_VENDOR_SPOT.z)
         for sk in ("Mining", "Blacksmith", "Tinkering"):
             report[sk] = self.command_on(f"[Set Skills.{sk}.Base {skill}", who)
-        for item in ("Pickaxe", "Tongs", "TinkerTools"):
+        for item in ("Pickaxe", "Tongs", "TinkerTools", "Bandage 50"):
             report[item] = self.command_on(f"[AddToPack {item}", who)
         if who != me:
             report["teleport"] = self.command_on(f"[Set X {MINE_SPOT.x} Y {MINE_SPOT.y} Z {MINE_SPOT.z}", who)
