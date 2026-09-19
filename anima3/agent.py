@@ -147,7 +147,8 @@ class Agent:
             # economy verbs go ahead of wandering/hold, after survival/loot
             keep = [a for a in affs if not a.id.startswith("walk:") and a.id != "hold"]
             tail = [a for a in affs if a.id.startswith("walk:") or a.id == "hold"]
-            affs = keep + econ + tail
+            # a worker with work on the menu is never offered idling or wandering
+            affs = keep + econ + ([] if econ else tail)
         rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, options=[a.id for a in affs])
         if not affs:
             rep.reason = "no affordances (dead or nothing valid)"

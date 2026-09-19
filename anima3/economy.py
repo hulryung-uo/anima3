@@ -266,7 +266,8 @@ def sell_once(vendor_serial: int, graphics: set[int], memory: dict | None = None
         listed = {i.serial for i in obs.shop_sell.items}
         memory.setdefault("unsellable", set()).update(
             i.serial for i in obs.own_pack() if i.graphic in graphics and i.serial not in listed)
-        return "nothing they want"
+        shown = ",".join(f"0x{i.graphic:04X}x{i.amount}" for i in obs.shop_sell.items[:8])
+        return f"nothing they want (window: {shown or 'empty'})"
     obs = yield sell_items(vendor_serial, offer)
     obs = yield from _await(obs, lambda o: o.player.gold > gold0, 12)
     return "ok" if obs is not None else "unconfirmed"

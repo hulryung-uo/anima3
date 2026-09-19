@@ -102,6 +102,9 @@ class Gm:
         report["at"] = (obs.player.pos.x, obs.player.pos.y, obs.player.pos.z)
         report["forge"] = self.add_item_at("Forge", FORGE_SPOT.x, FORGE_SPOT.y, FORGE_SPOT.z)
         report["anvil"] = self.add_item_at("Anvil", ANVIL_SPOT.x, ANVIL_SPOT.y, ANVIL_SPOT.z)
+        # `[Add` lands on the ground's own height; a forge on the cliff above the ridge
+        # (z=43, live-caught) is invisible to DefBlacksmithy's anvil/forge check.
+        report["leveled"] = self.level_forge_anvil(SMITH_SPOT.z)
         report["blacksmith"] = self.add_npc_pinned("Blacksmith", SMITH_VENDOR_SPOT.x, SMITH_VENDOR_SPOT.y, SMITH_VENDOR_SPOT.z)
         report["tinker"] = self.add_npc_pinned("Tinker", TINKER_VENDOR_SPOT.x, TINKER_VENDOR_SPOT.y, TINKER_VENDOR_SPOT.z)
         for skill in ("Mining", "Blacksmith", "Tinkering"):
@@ -115,6 +118,21 @@ class Gm:
         report["ground_near"] = sorted({hex(i.graphic) for i in obs.items if i.container is None and i.distance <= 4})
         report["mobiles_near"] = [(m.name, m.distance) for m in obs.mobiles if m.distance <= 6]
         return report
+
+    def ground_near(self, radius: int = 3) -> list:
+        obs = self.body.observe()
+        return [i for i in obs.items if i.container is None and i.distance <= radius]
+
+    def level_forge_anvil(self, z: int) -> list[str]:
+        """`[Set Z z` on every forge/anvil item within 3 tiles; returns what was found."""
+        from .economy import ANVIL_GRAPHICS, FORGE_GRAPHICS
+        out = []
+        for i in self.ground_near(3):
+            if i.graphic in FORGE_GRAPHICS or i.graphic in ANVIL_GRAPHICS:
+                kind = "forge" if i.graphic in FORGE_GRAPHICS else "anvil"
+                ok = self.command_on(f"[Set Z {z}", i.serial) if i.pos.z != z else True
+                out.append(f"{kind} 0x{i.graphic:04X} at ({i.pos.x},{i.pos.y},{i.pos.z}) -> z={z}: {ok}")
+        return out
 
     def spawn_near(self, kind: str, dx: int, dy: int) -> tuple[bool, Observation]:
         obs = self.body.observe()
@@ -132,6 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--createworld", action="store_true")
     ap.add_argument("--spawn", metavar="KIND"); ap.add_argument("--dx", type=int, default=3); ap.add_argument("--dy", type=int, default=0)
     ap.add_argument("--say", metavar="CMD", help="say an arbitrary cursor-less command and print the journal")
+    ap.add_argument("--go", nargs=3, type=int, metavar=("X", "Y", "Z"), help="`[Go X Y Z` (self) before anything else")
+    ap.add_argument("--ground", action="store_true", help="list ground items within 3 tiles (graphic, x, y, z)")
+    ap.add_argument("--level-forge-anvil", type=int, metavar="Z", help="`[Set Z` on nearby forge/anvil items")
     ap.add_argument("--pack", action="store_true", help="list pack items (graphic, amount, serial)")
     ap.add_argument("--add", metavar="ITEM", action="append", default=[], help="`[AddToPack ITEM` on self")
     ap.add_argument("--probe-tool", metavar="GRAPHIC", action="append", default=[], help="Use the pack tool with this graphic (hex) and dump raw gump JSON for a few ticks")
@@ -144,6 +165,18 @@ def main(argv: list[str] | None = None) -> int:
         if a.say:
             for line in gm.journal_after(a.say):
                 print("  journal:", line)
+        if a.go:
+            gm.go(*a.go)
+            o = body.observe()
+            print(f"  at ({o.player.pos.x}, {o.player.pos.y}, {o.player.pos.z}); ground items within 2: " + ", ".join(f"0x{i.graphic:04X}@{i.distance}" for i in o.items if i.container is None and i.distance <= 2))
+        if a.ground:
+            for i in gm.ground_near(3):
+                print(f"  ground 0x{i.graphic:04X} at ({i.pos.x},{i.pos.y},{i.pos.z}) dist={i.distance} serial={i.serial}")
+        if a.level_forge_anvil is not None:
+            for line in gm.level_forge_anvil(a.level_forge_anvil):
+                print("  " + line)
+            for i in gm.ground_near(3):
+                print(f"  now 0x{i.graphic:04X} at ({i.pos.x},{i.pos.y},{i.pos.z})")
         for prop in a.set_self:
             print(f"  [Set {prop}: {gm.set_self(prop)}")
         for item in a.add:
