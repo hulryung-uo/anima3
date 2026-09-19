@@ -312,12 +312,12 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
         out.append(Affordance("sell:tongs", f"Sell your {ef.tongs} tongs to the tinker.",
                               procedure=lambda o, m, v=tinker.serial, k=(ef.smith_tool.serial if ef.smith_tool else None): sell_once(v, set(TONGS_GRAPHICS), m, k)))
     # 2. walk to a vendor once a batch is ready
-    if ef.daggers >= batch and smith is not None and smith.distance > REACH:
+    if ef.daggers >= batch and (smith is None or smith.distance > REACH):
         out.append(Affordance("goto:blacksmith", "Walk to the blacksmith vendor to sell daggers.",
-                              procedure=lambda o, m, t=smith.pos: goto(t, REACH, o)))
-    if ef.tongs >= batch and tinker is not None and tinker.distance > REACH:
+                              procedure=lambda o, m, t=(smith.pos if smith else SMITH_VENDOR_SPOT): goto(t, REACH, o)))
+    if ef.tongs >= batch and (tinker is None or tinker.distance > REACH):
         out.append(Affordance("goto:tinker", "Walk to the tinker vendor to sell tongs.",
-                              procedure=lambda o, m, t=tinker.pos: goto(t, REACH, o)))
+                              procedure=lambda o, m, t=(tinker.pos if tinker else TINKER_VENDOR_SPOT): goto(t, REACH, o)))
     # 3. craft
     if ef.tinker_tool and ef.ingots >= TONGS_COST:
         out.append(Affordance("craft:tongs", f"Craft tongs with the tinker tools (uses {TONGS_COST} ingot; you have {ef.ingots}).",
@@ -333,17 +333,19 @@ def economy_affordances(obs: Observation, ef: EconFacts, memory: dict, *, batch:
         ore = max(piles, key=lambda i: i.amount)
         out.append(Affordance("smelt", f"Smelt your {ef.ore} ore into ingots at the forge.",
                               procedure=lambda o, m, s=ore.serial, f=ef.forge.serial: smelt_once(s, f)))
-    if (ef.ore or (ef.ingots >= DAGGER_COST and ef.smith_tool)) and ef.forge is not None and not ef.forge_near:
+    if (ef.ore or (ef.ingots >= DAGGER_COST and ef.smith_tool)) and not ef.forge_near:
         out.append(Affordance("goto:forge", "Walk to the forge and anvil.",
                               procedure=lambda o, m: goto(SMITH_SPOT, 0, o)))
-    # 5. mine
-    if ef.pickaxe and ef.weight_pct < 0.9:
-        if ef.at_mine <= REACH:
-            out.append(Affordance("mine", "Swing the pickaxe at the rock for more ore.",
-                                  procedure=lambda o, m, t=ef.pickaxe.serial: mine_once(t, m)))
-        else:
-            out.append(Affordance("goto:mine", "Walk to the ore vein.",
-                                  procedure=lambda o, m: goto(MINE_SPOT, 0, o)))
+    # 5. mine — or at least stay at the workplace: a worker never wanders off the ridge
+    if ef.pickaxe and ef.weight_pct < 0.9 and ef.at_mine <= REACH:
+        out.append(Affordance("mine", "Swing the pickaxe at the rock for more ore.",
+                              procedure=lambda o, m, t=ef.pickaxe.serial: mine_once(t, m)))
+    elif ef.at_mine > REACH and not any(a.id.startswith("goto:") for a in out):
+        out.append(Affordance("goto:mine", "Walk back to the ore vein.",
+                              procedure=lambda o, m: goto(MINE_SPOT, 0, o)))
+    if not out:
+        out.append(Affordance("wait:work", "Wait at the workplace; nothing can be done right now"
+                              + (" (no pickaxe)" if not ef.pickaxe else " (too heavy to mine)" if ef.weight_pct >= 0.9 else "") + "."))
     # a verb that just failed waits its backoff out (see Agent: 40 ticks)
     backoff = memory.get("backoff", {})
     now = memory.get("tick", 0)

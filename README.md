@@ -92,6 +92,49 @@ Two live lessons that were not visible offline: `Attack{serial}` beyond one tile
 nothing (hence approach-then-attack), and staff accounts are ignored by monster AI
 (hence the separate Player account for the agent — the same control ≠ play split anima2 kept).
 
+## Economy: mine → smelt → craft → sell (live, earns gold)
+
+`--economy` adds production verbs on anima2's calibrated Minoc ridge. Mechanics are
+deterministic **procedures** (generators fed one Observation per tick: use tool →
+wait for cursor → target → read the server's verdict); the model only chooses which
+admissible verb comes next. Stage once with `python -m anima3.gm --stage-economy`
+(owner account: forge, anvil, a pinned Blacksmith and Tinker, skills, tools).
+
+```bash
+uv run python -m anima3 --user anima3 --pass anima3 --economy --backend qwen --persona miner --ticks 400 --monitor 8801
+```
+
+| Run | Ticks | Gold | What happened |
+|---|---|---|---|
+| #6, Qwen | 400 (~2 min) | **1042 → 1187 (+145)** | tongs crafted in batches of 4 and sold (+28 each), daggers forged (3 ingots) and sold (10 g each, 4×), ingots ran 24 → 0 → mined and smelted back to 14; 48 procedures ok, 3 craft failures |
+| #7, Qwen, from empty stock | 200 | 1330 → 1380 (+50) | mine 15, smelt 5, craft 5 tongs + 2 daggers, 5 sales — the loop restarts itself |
+
+**Rule vs jeff vs Qwen, 150 ticks each, run back to back on the same character** (so the
+world state carries over — the rule run inherited a 13-ingot stockpile; not a controlled A/B):
+
+| Backend | Gold | Procedures ok | Model calls → admitted | Note |
+|---|---|---|---|---|
+| rule only | +76 | 17 (craft 9, sell 5) | — | spent the inherited stockpile |
+| jeff | +21 | 1 | 62 → **0** | every pick was `walk:*` at confidence 0.01–0.10; a stock-empty menu had let the rule wander off the ridge (fixed since: a worker never wanders, `goto:*` uses fixed spots, `wait:work` is the floor) |
+| Qwen | +46 | 21 (mine 8, craft 5, sell 5) | 6 → 5 | `mine` when stock was gone, `goto:forge` 0.97 with ore in hand |
+
+Procedures own most ticks, so the model is consulted rarely (6–15 calls per run) and
+its picks were the sensible ones; low-confidence picks (0.10–0.32) were rejected by the
+gate and the rule acted. jeff contributed no admitted decision in any run.
+
+**What the shard taught this loop** (each cost a live run): `[Add Forge` lands on the
+ground's own height — it sat at **z=43 on the cliff** above the smith spot and
+`DefBlacksmithy` ignored it (every attempt → 1044267) until `[Set Z 20`; `container is
+not None` counted the vendors' stock and worn gear as "pack" (filter by the own backpack);
+the newbie-kit dagger is unsellable; the starting smith hammer is not a crafting tool
+(tongs are); the CraftGump reports outcomes inside the re-shown gump (1044043 fail,
+1044154 made), not the journal; `Ore.cs` answers 501990 for an impure smelt (still a
+success); a craft gump left open blocks every other tool.
+
+Not yet: buying replacement tools when they wear out, banking, more recipes, and a
+Player-level worker (the economy ran on the owner account because no monster is
+involved; vendors and crafting treat staff like anyone else).
+
 ## Layout
 
 | File | Role |

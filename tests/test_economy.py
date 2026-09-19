@@ -104,3 +104,13 @@ def test_economy_menu_rule_order_and_gating():
     o2 = obs(pos=MINE_SPOT, items=[pk(4, 0x0E86)])
     ids2 = [a.id for a in economy_affordances(o2, econ_facts(o2, {}), {})]
     assert ids2 == ["mine"]
+
+
+def test_economy_menu_never_empties_and_returns_to_the_ridge():
+    far = Pos(2650, 500, 20)
+    o = obs(pos=far, items=[pk(4, 0x0E86)])
+    ids = [a.id for a in economy_affordances(o, econ_facts(o, {}), {})]
+    assert ids == ["goto:mine"]
+    o2 = obs(pos=MINE_SPOT, items=[])          # no pickaxe at all
+    ids2 = [a.id for a in economy_affordances(o2, econ_facts(o2, {}), {})]
+    assert ids2 == ["wait:work"]
