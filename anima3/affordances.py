@@ -173,6 +173,7 @@ def _unburden_proc(item: Item, amount: int):
     """Lift the surplus and drop it at your feet."""
     def proc(obs0, memory):
         p = obs0.player.pos
+        memory.setdefault("dropped", set()).add(item.serial)   # never pick it back up
         obs = yield pick_up(item.serial, amount)
         obs = yield drop(item.serial, 0xFFFFFFFF, p.x, p.y, p.z)
         for _ in range(4):
@@ -303,7 +304,8 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         else:
             d = direction_toward(p.pos, c.pos)
             out.append(Affordance(f"loot:{c.serial}", "Walk to the corpse of your kill.", (walk(d),)))
-    for it in f.ground_loot[:2]:
+    dropped = memory.get("dropped", set())
+    for it in [i for i in f.ground_loot if i.serial not in dropped][:2]:
         if it.distance <= 2:
             out.append(Affordance(f"pickup:{it.serial}", f"Pick up the {item_name(it)} at your feet.",
                                   procedure=_take_proc(it.serial, it.amount)))
@@ -324,7 +326,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
             out.append(Affordance(f"reply:{h['serial']}:remark", f'{who} said "{h["text"][:40]}". Remark on it.'))
         out.append(Affordance(f"ignore:{h['serial']}", f"Ignore what {who} said and carry on."))
     greeted: set[int] = memory.setdefault("greeted", set())
-    for m in f.people[:1]:
+    friends = memory.get("friends", set())
+    people = sorted(f.people, key=lambda m: (m.serial not in friends, m.distance))   # villagers before NPCs
+    for m in people[:1]:
         if m.distance <= 4 and m.serial not in greeted and persona.talkativeness > 0:
             for k, line in enumerate(persona.speech_examples[:2]):
                 out.append(Affordance(f"say:{m.serial}:{k}", f'Say to {m.name or "them"}: "{line}"', (say(line),)))
