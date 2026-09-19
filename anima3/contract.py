@@ -159,6 +159,22 @@ class Journal:
 
 
 @dataclass
+class Skill:
+    id: int
+    value: float     # displayed (with bonuses), tenths already divided
+    base: float      # trained base
+    cap: float
+    lock: int        # 0 up, 1 down, 2 locked
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> Skill:
+        def tenths(k: str) -> float:
+            v = d.get(k, 0) or 0
+            return float(v) / 10.0 if isinstance(v, int) and v > 200 else float(v)
+        return cls(int(d.get("id", 0)), tenths("value"), tenths("base"), tenths("cap"), int(d.get("lock", 0)))
+
+
+@dataclass
 class Terrain:
     """Walkability window: `walk` is `side*side` chars, row-major from `origin`
     (top-left), '.' walkable / anything else blocked."""
@@ -242,6 +258,7 @@ class Observation:
     popup: Popup | None = None
     shop_sell: ShopSell | None = None
     corpse_of: dict[int, int] = field(default_factory=dict)   # corpse serial -> killed mobile serial
+    skills: list[Skill] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Observation:
@@ -259,6 +276,7 @@ class Observation:
             popup=Popup(int(pu.get("serial", 0)), list(pu.get("entries") or [])) if pu else None,
             shop_sell=ShopSell.from_json(ss) if ss else None,
             corpse_of={int(x.get("corpse", 0)): int(x.get("killed", 0)) for x in d.get("corpse_of") or []},
+            skills=[Skill.from_json(x) for x in d.get("skills") or []],
         )
 
     # --- convenience views -------------------------------------------------

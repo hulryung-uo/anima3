@@ -23,6 +23,7 @@ from .body import Body
 from .contract import all_names, click
 from .decision import Admitted, Decision, DecisionClient, gate
 from .persona import Persona
+from .progression import curriculum_key, gm_count, progress_scene, training_delta
 from .scene import facts, render
 
 try:
@@ -57,6 +58,9 @@ class Agent:
         economy: bool = False, proc_max_ticks: int = 60,
     ) -> None:
         self.economy, self.proc_max_ticks = economy, proc_max_ticks
+        self.profession = persona.profession or "adventurer"
+        self.skill_log: list[tuple[int, dict[str, float]]] = []   # (tick, {skill: +delta})
+        self._prev_obs = None
         self._proc: tuple[str, Any, int] | None = None   # (affordance id, generator, started tick)
         self.proc_log: list[tuple[int, str, str]] = []    # (tick, id, verdict)
         self.body, self.persona, self.client = body, persona, client
@@ -111,6 +115,11 @@ class Agent:
         if self.tick_no % 20 == 1:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
+        if self._prev_obs is not None and obs.skills:
+            d = training_delta(self._prev_obs, obs)
+            if d:
+                self.skill_log.append((self.tick_no, d))
+        self._prev_obs = obs if obs.skills else self._prev_obs
         self._last_obs = obs
         self.memory["tick"] = self.tick_no
         if obs.corpse_of:  # death links are transient; remember our kills' corpses
@@ -146,6 +155,12 @@ class Agent:
             ef = econ_facts(obs, self.memory)
             econ = economy_affordances(obs, ef, self.memory)
             econ_lines = econ_scene(ef)
+            # curriculum: among admissible work, the verb training the largest skill gap leads
+            if obs.skills:
+                econ.sort(key=lambda a: curriculum_key(obs, self.profession)(a.id))
+                line = progress_scene(obs, self.profession)
+                if line:
+                    econ_lines.append(line)
             # economy verbs go ahead of wandering/hold, after survival/loot
             keep = [a for a in affs if not a.id.startswith("walk:") and a.id != "hold"]
             affs = keep + econ  # economy mode never offers wandering or idling; `wait:work` is the floor
@@ -265,6 +280,13 @@ class Agent:
                 on_tick(rep)
         return self.reports
 
+    def skill_gains(self) -> dict[str, float]:
+        total: dict[str, float] = {}
+        for _, d in self.skill_log:
+            for k, v in d.items():
+                total[k] = round(total.get(k, 0.0) + v, 1)
+        return total
+
     def summary(self) -> dict:
         r = self.reports
         decided = [x for x in r if x.confidence is not None]
@@ -276,4 +298,6 @@ class Agent:
                 "min_hp_pct": round(min((x.hp_pct for x in r), default=1.0), 2),
                 "avg_decision_ms": round(sum(x.ms for x in decided) / len(decided), 0) if decided else None,
                 "procedures": [f"{t}:{pid}={v}" for t, pid, v in self.proc_log][-40:],
+                "skill_gains": self.skill_gains(),
+                "gm": gm_count(self._last_obs, self.profession) if self._last_obs is not None and self._last_obs.skills else None,
                 "reasons": reasons}
