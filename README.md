@@ -189,6 +189,19 @@ Every generated line is screened by Laya's AI-voice detector before it is spoken
   blade. Mining up a bit. Tools still sharp. Keep going. Work speaks louder than words."*
 - Ragnar's: *"Ridge clear. For now. Mongbat again. Stupid thing. Killed two. Gold adds."*
 
+### Village #9 (2000 ticks, ~10 min, no deaths, after the fixes below)
+
+| | gold | skills | notes |
+|---|---|---|---|
+| Grimm | 1230 → **1747** | Mining 49.4 → **52.0**, Blacksmith +0.7, Tinkering +1.1 | sold a stack of tongs for 292, forged and sold daggers, mined the vein between |
+| Ragnar | 1655 → **1925** | Swords +1.2 | 545 decisions, every respawn killed and looted, greeted Grimm at tick 1 |
+
+Of 972 logged model decisions across all runs, 76% were admitted and 69% of those differed
+from the rule's first verb — but most of that steering was *into `hold`* (walk→hold 220,
+sell→hold 45, equip→hold 59). The genuine re-orderings were in the economy menus
+(craft→mine 19, flee→mine 10, craft→smelt 8). `hold` now competes only with wandering.
+Median confidence is 1.00: the logprob head is overconfident and still uncalibrated.
+
 ### Skill progression toward 7×GM
 
 `progression.py` names each profession's seven skills, which verbs train them, and re-orders

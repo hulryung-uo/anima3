@@ -271,8 +271,9 @@ class Agent:
                 continue
             seen.add((j.serial, j.text))
             m = near[j.serial]
-            if not addressed_to_me(j.text, obs.player.name, m.distance) and m.distance > 2:
-                continue
+            friend = j.serial in self.memory.get("friends", set())
+            if not addressed_to_me(j.text, obs.player.name, m.distance) and m.distance > (6 if friend else 2):
+                continue   # a villager talking nearby is always worth hearing
             tr = self.triage.classify(j.text)
             self.memory.setdefault("heard_pending", []).append(
                 {"serial": j.serial, "name": m.name or self.memory.get("names", {}).get(j.serial, ""), "text": j.text,
