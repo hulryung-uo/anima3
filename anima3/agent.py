@@ -151,6 +151,8 @@ class Agent:
             interrupted = f.dead or danger or f.hp_pct < 0.35 or self.tick_no - started > limit
             if not interrupted:
                 rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, chosen=pid, reason="procedure")
+                if self.speech is not None and self.reflect_every and self.tick_no % self.reflect_every == 0 and not self._reflecting:
+                    self._reflect(getattr(self, "_last_scene", render(obs, f, self.persona)))
                 try:
                     step = gen.send(obs)
                     if step is not None:
@@ -356,6 +358,10 @@ class Agent:
 
     def _execute(self, aff: Affordance, f) -> None:
         from .contract import say as _say
+        if aff.id.startswith("attack:"):
+            tgt = int(aff.id.split(":")[1])
+            self.memory["engaged"] = tgt
+            self.memory.setdefault("attacked", set()).add(tgt)
         for text in self.memory.pop("say_pending", []):   # lines generated earlier land now
             self.body.act(_say(text))
         if aff.id.startswith(("reply:", "ignore:")):
@@ -392,7 +398,11 @@ class Agent:
     def _log_proc(self, pid: str, obs, step) -> None:
         if not self.log_path:
             return
-        row = {"tick": self.tick_no, "proc": pid, "step": None if step is None else step.get("type"),
+        eng = self.memory.get("engaged")
+        tgt = next((m for m in obs.mobiles if m.serial == eng), None) if eng else None
+        row = {"tick": self.tick_no, "proc": pid, "step": step,
+               "me": (obs.player.pos.x, obs.player.pos.y, obs.player.pos.z),
+               "target": None if tgt is None else (tgt.serial, tgt.pos.x, tgt.pos.y, tgt.pos.z, tgt.distance),
                "journal": [(j.cliloc, j.text[:80]) for j in obs.new_journal if j.text or j.cliloc],
                "gumps": [(g.serial, g.gump_id, sorted(set(re.findall(r"[0-9]{7}", g.layout)))[:12]) for g in obs.gumps],
                "cursor": obs.pending_target, "popup": None if obs.popup is None else len(obs.popup.entries),

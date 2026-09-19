@@ -14,6 +14,7 @@ from typing import Any
 from .contract import (
     DIRECTION_DELTAS,
     DIRECTION_NAMES,
+    Item,
     Observation,
     Pos,
     attack,
@@ -72,7 +73,9 @@ GOLD = 0x0EED
 
 def _unequipped_gear(obs: Observation, memory: dict):
     failed = memory.get("equip_failed", set())
-    return [i for i in obs.own_pack() if i.graphic in GEAR_GRAPHICS and i.serial not in failed]
+    worn_layers = {i.layer for i in obs.items if i.container == obs.player.serial}
+    return [i for i in obs.own_pack() if i.graphic in GEAR_GRAPHICS and i.serial not in failed
+            and GEAR_GRAPHICS[i.graphic][1] not in worn_layers]
 
 
 def _take_proc(serial: int, amount: int):
@@ -149,6 +152,37 @@ def _visit_proc(serial: int):
     return proc
 
 
+#: Weights (stones) of things a fighter accumulates; anything else counts as 1.
+_WEIGHTS = {0x0E21: 0.1, 0x13FF: 6, 0x1415: 10, 0x1411: 7, 0x1410: 5, 0x1413: 2, 0x1414: 2, 0x1412: 5, 0x0EED: 0.02}
+
+
+def surplus(obs: Observation) -> list[Item]:
+    """Heaviest first: duplicate gear beyond what is worn, bandages beyond 100, junk."""
+    worn_layers = {i.layer for i in obs.items if i.container == obs.player.serial}
+    out = []
+    for i in obs.own_pack():
+        if i.graphic in GEAR_GRAPHICS and GEAR_GRAPHICS[i.graphic][1] in worn_layers:
+            out.append((_WEIGHTS.get(i.graphic, 1) * i.amount, i))
+        elif i.graphic == 0x0E21 and i.amount > 100:
+            out.append((_WEIGHTS[0x0E21] * (i.amount - 100), i))
+    out.sort(key=lambda t: -t[0])
+    return [i for _, i in out]
+
+
+def _unburden_proc(item: Item, amount: int):
+    """Lift the surplus and drop it at your feet."""
+    def proc(obs0, memory):
+        p = obs0.player.pos
+        obs = yield pick_up(item.serial, amount)
+        obs = yield drop(item.serial, 0xFFFFFFFF, p.x, p.y, p.z)
+        for _ in range(4):
+            if obs.player.weight < obs0.player.weight:
+                return "ok"
+            obs = yield None
+        return "unconfirmed"
+    return proc
+
+
 def _loot_proc(corpse_serial: int):
     """Open the corpse, then lift its gold and drop it into the backpack."""
     def proc(obs0, memory):
@@ -193,6 +227,13 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     if f.dead:
         return []
     out: list[Affordance] = []
+    # Overloaded: nothing else works until something is put down (UO refuses every step).
+    if p.weight_max and p.weight >= p.weight_max:
+        for it in surplus(obs)[:2]:
+            amt = it.amount - 100 if it.graphic == 0x0E21 else it.amount
+            out.append(Affordance(f"drop:{it.serial}", f"Put down the {item_name(it) if it.graphic in (GOLD, 0x0E21) else GEAR_GRAPHICS.get(it.graphic, ('item',))[0]} you cannot carry.",
+                                  procedure=_unburden_proc(it, amt)))
+        return out or [Affordance("stuck:overloaded", "You are overloaded and have nothing spare to drop.")]
     black = memory.get("target_blacklist", {})
     friends = memory.get("friends", set())
     now = memory.get("tick", 0)
@@ -212,7 +253,7 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
 
     # Gear first: a sword in the pack is worth one tick even with a threat a few tiles out.
     gear = _unequipped_gear(obs, memory)
-    if gear and f.hp_pct >= 0.35 and (threat is None or threat.distance > 1):
+    if gear and f.hp_pct >= 0.35 and (threat is None or threat.distance > 4):   # matches the agent's danger interrupt (<= 3)
         g = gear[0]
         name, layer = GEAR_GRAPHICS[g.graphic]
         out.append(Affordance(f"equip:{g.serial}", f"Put on the {name}.", procedure=_equip_proc(g.serial, layer)))

@@ -57,6 +57,12 @@ def test_equip_offered_when_gear_in_pack_and_no_close_threat():
     assert got[0].startswith("equip:")
     w.add_hostile(1, 0)
     assert not any(g.startswith("equip:") for g in ids(w))  # not with a hostile adjacent
+    w2 = FakeBody(); w2.add_pack_item(0x13FF)
+    from anima3.contract import Item, Pos
+    w2.worn.append(Item(0x9, 0x13FF, 1, Pos(), w2.player.serial, 1, 0))   # a katana already worn on layer 1
+    obs = w2.observe()
+    from anima3.affordances import _unequipped_gear
+    assert _unequipped_gear(obs, {}) == []
 
 
 def test_loot_offered_only_for_own_corpse():
@@ -151,3 +157,18 @@ def test_friends_are_never_threats():
     obs = w.observe(); f = facts(obs)
     got = [a.id for a in enumerate_affordances(obs, f, Persona(name="R", combat_disposition="aggressive"), {"friends": {m.serial}})]
     assert not any(g.startswith(("attack:", "flee")) for g in got)
+
+
+def test_overloaded_offers_only_dropping_surplus():
+    from anima3.contract import Item, Pos
+    w = FakeBody(); w.player.weight = 250; w.player.weight_max = 250
+    w.add_pack_item(0x13FF)                                                   # a spare katana in the pack
+    w.worn.append(Item(0x9, 0x13FF, 1, Pos(), w.player.serial, 1, 0))       # one already worn
+    obs = w.observe()
+    got = [a.id for a in enumerate_affordances(obs, facts(obs), P, {})]
+    assert len(got) == 1 and got[0].startswith("drop:")
+    from anima3.agent import Agent
+    from anima3.decision import Scripted
+    ag = Agent(w, P, Scripted(), pump_ms=0)
+    ag.run(3)
+    assert any(x["type"] == "Drop" and x["container"] == 0xFFFFFFFF for x in w.log)

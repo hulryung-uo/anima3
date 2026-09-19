@@ -208,6 +208,7 @@ class FakeBody:
                 for m in self.mobiles if m.hits > 0]
         items = [Item(i.serial, i.graphic, i.amount, i.pos, None, 0, chebyshev(p.pos, i.pos)) for i in self.ground]
         items += [Item(0x4000_0001, 0x0E75, 1, Pos(), p.serial, 0x15, 0)]  # the backpack itself
+        items += [Item(i.serial, i.graphic, i.amount, Pos(), p.serial, i.layer, 0) for i in self.worn]
         items += [Item(i.serial, i.graphic, i.amount, i.pos, i.container, i.layer, 0) for i in self.pack]
         mobs.sort(key=lambda m: m.distance)
         items.sort(key=lambda i: i.distance)
@@ -241,6 +242,10 @@ class FakeBody:
                 if it.serial == action["serial"] and (it in self.pack or chebyshev(p.pos, it.pos) <= 2):
                     (self.ground if it in self.ground else self.pack).remove(it)
                     self.held = it
+        elif t == "Drop" and self.held is not None and action.get("container") == 0xFFFFFFFF:
+            it = self.held; self.held = None
+            self.ground.append(Item(it.serial, it.graphic, it.amount, Pos(action["x"], action["y"], 0), None, 0, 0))
+            p.weight = max(0, p.weight - 6 * it.amount)
         elif t == "Drop":
             it = self.held
             if it is not None and it.serial == action["serial"] and action.get("container") == 0x4000_0001:
@@ -263,7 +268,7 @@ class FakeBody:
             it = self.held
             if it is not None and it.serial == action["serial"]:
                 self.held = None
-                self.worn.append(it)
+                self.worn.append(Item(it.serial, it.graphic, it.amount, Pos(), p.serial, int(action.get("layer", 1)), 0))
         elif t == "AllNames":
             pass
         elif t == "Click":
