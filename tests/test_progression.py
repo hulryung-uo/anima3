@@ -41,11 +41,11 @@ def test_training_delta_reports_only_changes():
 def test_train_verbs_largest_gap_first_and_rate_limited():
     from anima3.body import FakeBody
     from anima3.contract import BANDAGE_GRAPHIC
-    w = FakeBody(); w.add_pack_item(BANDAGE_GRAPHIC, 5)
+    w = FakeBody(); w.add_pack_item(BANDAGE_GRAPHIC, 5); w.add_pack_item(0x0E86)   # a pickaxe: gear for ArmsLore
     o = w.observe(); o.skills = obs(Mining=60.0, Hiding=10.0, Meditation=40.0, ArmsLore=0.0, ItemID=50.0).skills
     mem = {"tick": 100}
     ids = [a.id for a in train_verbs(o, "miner", mem)]
-    assert ids == ["train:ArmsLore", "train:Hiding"]
+    assert ids == ["train:ArmsLore", "train:Hiding"]      # Meditation skipped: mana is full
     mem["train_next"] = 200
     assert train_verbs(o, "miner", mem) == []
 
@@ -56,6 +56,6 @@ def test_train_procedure_uses_skill_then_targets_when_needed():
     w = FakeBody(); o = w.observe()
     gen = _train_proc(21, "none", None)(o, {"tick": 5}); first = next(gen)
     assert first == {"type": "UseSkill", "skill": 21}
-    gen2 = _train_proc(4, "item", 0x77)(o, {"tick": 5}); assert next(gen2)["type"] == "UseSkill"
+    gen2 = _train_proc(4, "gear", 0x77)(o, {"tick": 5}); assert next(gen2)["type"] == "UseSkill"
     o.pending_target = True
     assert gen2.send(o) == {"type": "TargetObject", "serial": 0x77}

@@ -41,7 +41,9 @@ TRAINS: dict[str, tuple[int, ...]] = {
 
 #: Skills trained by invoking them (`UseSkill`) with no more than a target: what the
 #: character does between jobs. kind: none | item (something in the pack) | mobile (someone near).
-TRAINABLE: dict[int, str] = {21: "none", 46: "none", 4: "item", 3: "item", 1: "mobile", 16: "mobile", 14: "none", 38: "none"}
+TRAINABLE: dict[int, str] = {21: "none", 46: "none", 4: "gear", 3: "item", 1: "mobile", 16: "mobile", 14: "none", 38: "none"}
+#: Weapons and armour ArmsLore can appraise (worn or carried); a pickaxe is a weapon to ServUO.
+GEAR = frozenset({0x13FF, 0x1415, 0x1411, 0x1410, 0x1413, 0x1414, 0x1412, 0x0E86, 0x0E85, 0x0F52, 0x0FBB, 0x0FBC})
 #: Every skill here can be raised by verbs this brain has: work skills by the economy and
 #: combat, the rest by `train:` — so the seven are reachable, not aspirational.
 PROFESSION_GM: dict[str, tuple[int, ...]] = {
@@ -131,11 +133,17 @@ def _train_proc(skill_id: int, kind: str, target_serial: int | None):
             if not obs.pending_target:
                 return "no cursor"
             obs = yield target_object(target_serial)
+        seen: set[int] = set()
         for _ in range(3):
-            if any(j.cliloc == SKILL_COOLDOWN_CLILOC for j in obs.new_journal):
-                return "cooldown"
+            seen |= {j.cliloc for j in obs.new_journal}
             obs = yield None
-        memory["train_next"] = memory.get("tick", 0) + 12
+        memory["train_next"] = memory.get("tick", 0) + 20   # the server's own skill delay is ~6 s
+        if SKILL_COOLDOWN_CLILOC in seen:
+            return "cooldown"
+        if 500352 in seen:
+            return "wrong target"
+        if 501846 in seen:
+            return "at peace"          # Meditation with full mana: nothing to train on
         return "ok"
     return proc
 
@@ -151,8 +159,15 @@ def train_verbs(obs: Observation, profession: str, memory: dict) -> list:
         kind = TRAINABLE.get(g.id)
         if kind is None or g.gap <= 0:
             continue
+        if g.id == 46 and obs.player.mana >= obs.player.mana_max:
+            continue   # Meditation with full mana only says "You are at peace."
         target = None
-        if kind == "item":
+        if kind == "gear":
+            it = next((i for i in obs.items if i.graphic in GEAR and i.container in (obs.player.serial, obs.backpack_serial())), None)
+            if it is None:
+                continue
+            target = it.serial
+        elif kind == "item":
             it = next((i for i in obs.own_pack() if i.graphic not in (0x0EED,)), None)
             if it is None:
                 continue
@@ -162,7 +177,7 @@ def train_verbs(obs: Observation, profession: str, memory: dict) -> list:
             if m is None:
                 continue
             target = m.serial
-        how = {"none": "", "item": " on something you carry", "mobile": " on someone nearby"}[kind]
+        how = {"none": "", "item": " on something you carry", "gear": " on your weapon or armour", "mobile": " on someone nearby"}[kind]
         out.append(Affordance(f"train:{g.name}", f"Practise {g.name}{how} ({g.base:.0f} of 100).",
                               procedure=_train_proc(g.id, kind, target)))
     return out[:2]
