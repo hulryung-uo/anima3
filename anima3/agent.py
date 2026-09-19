@@ -15,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .affordances import Affordance, enumerate_affordances
 from .body import Body
@@ -22,6 +23,11 @@ from .contract import all_names, click
 from .decision import Admitted, Decision, DecisionClient, gate
 from .persona import Persona
 from .scene import facts, render
+
+try:
+    from .economy import econ_facts, econ_scene, economy_affordances
+except ImportError:  # pragma: no cover
+    econ_facts = econ_scene = economy_affordances = None
 
 QUESTION = "What should you do right now?"
 
@@ -47,7 +53,11 @@ class Agent:
         self, body: Body, persona: Persona, client: DecisionClient, *,
         decide_every: int = 4, plan_ticks: int = 4, threshold: float = 0.35, deadline_s: float = 1.5,
         pump_ms: int = 250, log_path: str | Path | None = None, sync: bool | None = None,
+        economy: bool = False, proc_max_ticks: int = 60,
     ) -> None:
+        self.economy, self.proc_max_ticks = economy, proc_max_ticks
+        self._proc: tuple[str, Any, int] | None = None   # (affordance id, generator, started tick)
+        self.proc_log: list[tuple[int, str, str]] = []    # (tick, id, verdict)
         self.body, self.persona, self.client = body, persona, client
         self.decide_every, self.plan_ticks, self.threshold = decide_every, plan_ticks, threshold
         self.deadline_s, self.pump_ms = deadline_s, pump_ms
@@ -100,9 +110,38 @@ class Agent:
         if self.tick_no % 20 == 1:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
+        self._last_obs = obs
         self._learn_names(obs)
         f = facts(obs)
+        # An active procedure owns the tick unless danger interrupts it.
+        if self._proc is not None:
+            pid, gen, started = self._proc
+            interrupted = f.dead or (f.hostiles and f.hostiles[0].distance <= 3) or self.tick_no - started > self.proc_max_ticks
+            if not interrupted:
+                rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, chosen=pid, reason="procedure")
+                try:
+                    step = gen.send(obs)
+                    if step is not None:
+                        self.body.act(step)
+                except StopIteration as done:
+                    self.proc_log.append((self.tick_no, pid, str(done.value)))
+                    rep.reason = f"procedure done: {done.value}"
+                    self._proc = None
+                self.body.pump(self.pump_ms)
+                self.reports.append(rep)
+                return rep
+            self.proc_log.append((self.tick_no, pid, "interrupted"))
+            self._proc = None
         affs = enumerate_affordances(obs, f, self.persona, self.memory)
+        econ_lines: list[str] = []
+        if self.economy and econ_facts is not None and not f.hostiles and not f.dead:
+            ef = econ_facts(obs, self.memory)
+            econ = economy_affordances(obs, ef, self.memory)
+            econ_lines = econ_scene(ef)
+            # economy verbs go ahead of wandering/hold, after survival/loot
+            keep = [a for a in affs if not a.id.startswith("walk:") and a.id != "hold"]
+            tail = [a for a in affs if a.id.startswith("walk:") or a.id == "hold"]
+            affs = keep + econ + tail
         rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, options=[a.id for a in affs])
         if not affs:
             rep.reason = "no affordances (dead or nothing valid)"
@@ -112,6 +151,8 @@ class Agent:
         options = {a.id: a.description for a in affs}
         by_id = {a.id: a for a in affs}
         scene = render(obs, f, self.persona)
+        if econ_lines:
+            scene += "\n" + "\n".join(econ_lines)
         sig = self._signature(len(f.hostiles), f.hp_pct, options)
         changed = sig != self._last_sig
         self._last_sig = sig
@@ -170,6 +211,17 @@ class Agent:
                 break
 
     def _execute(self, aff: Affordance, f) -> None:
+        if aff.procedure is not None:
+            gen = aff.procedure(self._last_obs, self.memory)
+            try:
+                step = next(gen)  # the first action; the generator then waits for next tick's obs
+                if step is not None:
+                    self.body.act(step)
+                self._proc = (aff.id, gen, self.tick_no)
+                self._plan = None  # a procedure, not a plan, now owns the ticks
+            except StopIteration as done:
+                self.proc_log.append((self.tick_no, aff.id, str(done.value)))
+            return
         for action in aff.actions:
             self.body.act(action)
         if aff.id.startswith("say:"):
@@ -205,4 +257,5 @@ class Agent:
                 "dead": bool(r and r[-1].dead), "gold": r[-1].gold if r else 0,
                 "min_hp_pct": round(min((x.hp_pct for x in r), default=1.0), 2),
                 "avg_decision_ms": round(sum(x.ms for x in decided) / len(decided), 0) if decided else None,
+                "procedures": [f"{t}:{pid}={v}" for t, pid, v in self.proc_log][-40:],
                 "reasons": reasons}

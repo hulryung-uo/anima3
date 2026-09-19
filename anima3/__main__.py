@@ -36,6 +36,8 @@ def scenario(name: str) -> FakeBody:
 def _print(rep: TickReport) -> None:
     tag = "DEAD" if rep.dead else f"hp={rep.hp_pct:4.0%}"
     src = f"{rep.backend} conf={rep.confidence:.2f} {rep.ms:4.0f}ms" if rep.confidence is not None else ""
+    if rep.reason.startswith("procedure done"):
+        src = rep.reason
     how = ("MODEL" if rep.used_model and rep.backend != "scripted" else rep.reason)
     print(f"t={rep.tick:3d} {tag} hostiles={rep.hostiles} gold={rep.gold:4d} → {rep.chosen or '-':<22} [{how}] {src}")
 
@@ -54,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sync", action="store_true", help="decide on the tick thread (deterministic; blocks the body)")
     ap.add_argument("--stage-spawn", metavar="KIND", help="live only: `[Add KIND` near the character before playing (owner account)")
     ap.add_argument("--stage-dx", type=int, default=4); ap.add_argument("--stage-dy", type=int, default=0)
+    ap.add_argument("--economy", action="store_true", help="enable mine/smelt/craft/sell verbs (Minoc ridge)")
     ap.add_argument("--disposition", choices=["pacifist", "defensive", "neutral", "aggressive"], help="override the persona's combat_disposition")
     a = ap.parse_args(argv)
 
@@ -79,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
             near = ", ".join(f"{m.name or '?'}@{m.distance}" for m in obs.mobiles[:4]) or "nobody"
             print(f"staged: [Add {a.stage_spawn} → cursor={'yes' if ok else 'NO'}; nearby: {near}")
     agent = Agent(body, persona, client, decide_every=a.decide_every, threshold=a.threshold,
-                  pump_ms=pump_ms, log_path=a.log, sync=True if a.sync else None)
+                  pump_ms=pump_ms, log_path=a.log, sync=True if a.sync else None, economy=a.economy)
     print(f"anima3: {persona.who} | backend={client.name} | {'offline:' + a.offline if a.offline else a.host}")
     try:
         agent.run(a.ticks, on_tick=None if a.quiet else _print)

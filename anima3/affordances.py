@@ -9,6 +9,7 @@ and a pacifist persona is never offered `attack`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from .contract import (
     DIRECTION_DELTAS,
@@ -32,10 +33,13 @@ class Affordance:
     id: str
     description: str
     actions: tuple[dict, ...] = field(default_factory=tuple)
+    #: A multi-tick procedure factory `(obs, memory) -> generator`; when set, the
+    #: agent runs it to completion instead of emitting `actions` once.
+    procedure: Any = None
 
     @property
     def is_hold(self) -> bool:
-        return not self.actions
+        return not self.actions and self.procedure is None
 
 
 HOLD = Affordance("hold", "Do nothing this moment; watch and wait.")

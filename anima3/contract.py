@@ -183,6 +183,53 @@ class Terrain:
 
 
 @dataclass
+class Gump:
+    serial: int
+    gump_id: int
+    layout: str
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> Gump:
+        return cls(int(d.get("serial", 0)), int(d.get("gump_id", 0)), str(d.get("layout", "")))
+
+    def has_cliloc(self, cliloc: int) -> bool:
+        return str(cliloc) in self.layout
+
+
+@dataclass
+class Popup:
+    serial: int
+    entries: list[dict[str, Any]]
+
+    def index_of(self, cliloc: int, text: str | None = None) -> int | None:
+        for i, e in enumerate(self.entries):
+            if int(e.get("cliloc", -1)) == cliloc or (text and str(e.get("text", "")).lower() == text.lower()):
+                return int(e.get("index", i))
+        return None
+
+
+@dataclass
+class ShopSellItem:
+    serial: int
+    graphic: int
+    amount: int
+    price: int
+    name: str
+
+
+@dataclass
+class ShopSell:
+    vendor: int
+    items: list[ShopSellItem]
+
+    @classmethod
+    def from_json(cls, d: dict[str, Any]) -> ShopSell:
+        return cls(int(d.get("vendor", 0)), [ShopSellItem(int(i.get("serial", 0)), int(i.get("graphic", 0)),
+                                                          int(i.get("amount", 1)), int(i.get("price", 0)),
+                                                          str(i.get("name", ""))) for i in d.get("items") or []])
+
+
+@dataclass
 class Observation:
     player: Player = field(default_factory=Player)
     mobiles: list[Mobile] = field(default_factory=list)
@@ -191,9 +238,14 @@ class Observation:
     pending_target: bool = False
     war: bool = False
     terrain: Terrain | None = None
+    gumps: list[Gump] = field(default_factory=list)
+    popup: Popup | None = None
+    shop_sell: ShopSell | None = None
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Observation:
+        pu = d.get("popup")
+        ss = d.get("shop_sell")
         return cls(
             player=Player.from_json(d.get("player") or {}),
             mobiles=[Mobile.from_json(m) for m in d.get("mobiles") or []],
@@ -202,6 +254,9 @@ class Observation:
             pending_target=bool(d.get("pending_target")),
             war=bool(d.get("war", False)),
             terrain=Terrain.from_json(d.get("terrain")),
+            gumps=[Gump.from_json(g) for g in d.get("gumps") or []],
+            popup=Popup(int(pu.get("serial", 0)), list(pu.get("entries") or [])) if pu else None,
+            shop_sell=ShopSell.from_json(ss) if ss else None,
         )
 
     # --- convenience views -------------------------------------------------
@@ -265,3 +320,19 @@ def all_names() -> dict:
 def click(serial: int) -> dict:
     """Single-click: the server answers with the object's name as a journal line."""
     return {"type": "Click", "serial": int(serial)}
+
+
+def gump_response(serial: int, gump_id: int, button: int) -> dict:
+    return {"type": "GumpResponse", "serial": int(serial), "gump_id": int(gump_id), "button": int(button)}
+
+
+def popup_request(serial: int) -> dict:
+    return {"type": "PopupRequest", "serial": int(serial)}
+
+
+def popup_select(serial: int, index: int) -> dict:
+    return {"type": "PopupSelect", "serial": int(serial), "index": int(index)}
+
+
+def sell_items(vendor: int, items: list[tuple[int, int]]) -> dict:
+    return {"type": "SellItems", "vendor": int(vendor), "items": [{"serial": int(s), "amount": int(a)} for s, a in items]}
