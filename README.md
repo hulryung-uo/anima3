@@ -241,6 +241,39 @@ Grandmaster is hours of running away, not minutes — the mechanism is what is v
 - **Staging resets skills.** `[Set Skills.Mining.Base 45` every run erased the gains; the GM now keeps a trained skill.
 - Fresh characters resurrect at ~20% HP: the economy kit includes bandages.
 
+## Duels: PvP under the old pit rules, refereed by the shard
+
+```bash
+uv run python -m anima3.duel --referee server --a anima3d1:duelist_a:qwen --b anima3d2:duelist_b:scripted \
+    --rules 5x --weapon katana --armor leather --rounds 3
+```
+
+Two Player-level characters, each with its **own decision backend** (`scripted` = the rule,
+`qwen`, `jeff`), fight in the shard's arena. ServUO's built-in PVP Arena System is
+High-Seas-only, so a T2A-compatible duel service was added to the shard
+(`Scripts/Services/Dueling`, built in a sibling session): a fenced 9×5 ring at (2598–2606,
+489–493), `[Challenge <name> <rounds> <rules>` / `[Accept` spoken by the fighters themselves,
+5x/7x enforced as "the eight duelling skills sum to ≤ 500/700", a weapon token enforced by
+unequipping, no criminal flags (the two are *enemy* to each other for the match), items kept on
+death, resurrection at the marks, 5-second countdowns, a 180 s round limit, and fixed
+`[Duel] …` journal lines the brain reads as state: `FIGHT!` sets the opponent, `Round N:` clears
+it, `Match:` ends. `--referee gm` keeps the older script-refereed mode (open ground, no arena).
+
+Watch from a spectator account in anima-client's own renderer: `target/release/play 127.0.0.1
+2593 anima3spec anima3spec 8090 web ~/dev/uo/uo-resource`, then `[Set X 2602 Y 495 Z 20` and
+`[Set Blessed true` on it — the seat against the south fence sees the whole floor, and it stays
+up between matches (a bridge's `--monitor` view lives only while that bridge runs).
+
+**First refereed match** (5x, katana, leather): Rook (rule) 2 – 0 Kael (Qwen); round 1 a 180 s
+draw, then 92 s and 33 s wins. The telling number: when *attack* was on Kael's menu he chose it
+**115 of 115 times**, at 35–45% health included, where the rule binds its wounds first. The raw
+logprob head fights like a berserker; the rule, which bandages under 45%, wins.
+
+What the ring taught: gear goes to the corpse on death in Felucca (the shard's duel service now
+keeps it); re-applying a bandage every tick cancels the previous one, so bandaging is a
+procedure that waits for "You finish applying the bandages"; a referee that de-duplicates
+journal lines by text drops the second `FIGHT!`.
+
 ## Layout
 
 | File | Role |
@@ -256,6 +289,8 @@ Grandmaster is hours of running away, not minutes — the mechanism is what is v
 | `progression.py` | skills, profession GM sets, curriculum ordering |
 | `triage.py` · `speech.py` | Laya speech triage · generated replies, aims, chronicle |
 | `village.py` | several characters, one process, GM staging/resurrection |
+| `duel.py` | refereed PvP: 5x/7x templates, weapon/armour rules, per-side backends; server or GM referee |
+| `calibrate.py` | outcome-labelled temperature scaling over the decision logs |
 
 ## Not yet
 
