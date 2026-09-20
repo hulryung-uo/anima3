@@ -188,7 +188,7 @@ class Agent:
             econ = [a for a in econ if a.id != "wait:work"] or []
             practice = train_verbs(obs, self.profession, self.memory) if obs.skills else []
             affs = keep + econ + practice or [Affordance("wait:work", "Wait at the workplace; nothing can be done right now.")]
-        if not self.economy and obs.skills and not f.hostiles and not f.dead:
+        if not self.economy and obs.skills and not f.hostiles and not f.dead and not self.memory.get("duel"):
             practice = train_verbs(obs, self.profession, self.memory)
             if practice:   # between fights a hunter practises rather than idles
                 affs = [a for a in affs if a.id != "hold" and not a.id.startswith("walk:")] + practice

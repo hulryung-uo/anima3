@@ -290,6 +290,8 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
         if f.hp_pct < (0.85 if duel is not None else 0.7) and not any(a.id == "bandage" for a in out):
             add_bandage()
         out.append(HOLD)
+        if duel is not None:
+            return out
         # A threat that is not close does not stop a healthy character's day: the economy
         # verbs are appended by the agent after this menu, so only return early when it is.
         if threat.distance <= 3 or f.hp_pct < 0.7:
@@ -299,6 +301,8 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     # Peaceful surroundings.
     if f.war:
         out.append(Affordance("stand_down", "Leave war mode; the fight is over.", (war_mode(False),)))
+    if memory.get("duel"):
+        return out or [HOLD]     # a duelist between rounds neither loots nor chats
     looted: set[int] = memory.setdefault("looted", set())
     my_corpses: set[int] = memory.setdefault("my_corpses", set())
     attacked: set[int] = memory.setdefault("attacked", set())

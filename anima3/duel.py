@@ -58,8 +58,8 @@ def parse(spec: str) -> Fighter:
     return Fighter(acct, Persona.load(pname), backend)
 
 
-def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str) -> dict:
-    rep = {"rename": gm.command_on(f"[Set Name {fx.persona.name}", fx.serial)}
+def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, rename: bool = True) -> dict:
+    rep = {"rename": gm.command_on(f"[Set Name {fx.persona.name}", fx.serial)} if rename else {}
     template = dict(TEMPLATES[rules])
     wname, wgraphic, _ = WEAPONS[weapon]
     if wname is None:
@@ -72,23 +72,53 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str) -
     have = {i.graphic for i in obs.items if i.container in (fx.serial, obs.backpack_serial())}
     if wname and wgraphic not in have:
         rep["weapon"] = gm.command_on(f"[AddToPack {wname}", fx.serial)
+    if wname is None:
+        for i in obs.items:   # fists: no blade in hand
+            if i.container == fx.serial and i.layer in (1, 2):
+                gm.command_on("[Delete", i.serial)
     if rules == "7x" and weapon != "fists" and WEAPONS[weapon][2] == 1 and 0x1B73 not in have:
         rep["shield"] = gm.command_on("[AddToPack Buckler", fx.serial)
+    from .affordances import GEAR_GRAPHICS
+    worn_layers = {i.layer for i in obs.items if i.container == fx.serial}
+    pack_layers = {GEAR_GRAPHICS[i.graphic][1] for i in obs.own_pack() if i.graphic in GEAR_GRAPHICS}
+    armor_layer = {"LeatherChest": 0x0D, "LeatherLegs": 0x04, "LeatherArms": 0x13, "LeatherGloves": 0x07, "LeatherGorget": 0x0A, "LeatherCap": 0x06,
+                   "PlateChest": 0x0D, "PlateLegs": 0x04, "PlateArms": 0x13, "PlateGloves": 0x07, "PlateGorget": 0x0A, "PlateHelm": 0x06}
     for piece in ARMOR[armor]:
-        gm.command_on(f"[AddToPack {piece}", fx.serial)
+        if armor_layer[piece] not in worn_layers | pack_layers:
+            gm.command_on(f"[AddToPack {piece}", fx.serial)
     if not any(i.graphic == 0x0E21 for i in obs.own_pack()):
         gm.command_on("[AddToPack Bandage 100", fx.serial)
     gm.command_on("[Set CantWalk false", fx.serial)
     return rep
 
 
-def reset(gm: Gm, fx: Fighter, spot: Pos) -> None:
+def reset(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str) -> None:
+    """Resurrect, restore, and re-kit: a fallen duelist's gear lies on the corpse (Felucca)."""
     gm.command_on("[Resurrect", fx.serial)
     gm.command_on(f"[Set X {spot.x} Y {spot.y} Z {spot.z}", fx.serial)
     gm.command_on("[Set Hits 100", fx.serial)
     gm.command_on("[Set Stam 100", fx.serial)
     gm.command_on("[Set Criminal false", fx.serial)
     gm.command_on("[Set Kills 0", fx.serial)
+    for _ in range(3):
+        fx.body.pump(200)
+    stage(gm, fx, spot, rules, weapon, armor, rename=False)
+
+
+def prep(a: Fighter, b: Fighter, clients: dict, pump_ms: int, max_ticks: int = 60) -> int:
+    """Both fighters put their gear on before the round is called (no opponent set yet)."""
+    for fx in (a, b):
+        fx.agent = Agent(fx.body, fx.persona, clients["scripted"], decide_every=1, pump_ms=pump_ms, triage=None, reflect_every=0)
+        fx.agent.memory["duel"] = True
+    quiet = 0
+    for t in range(max_ticks):
+        for fx in (a, b):
+            fx.agent.tick()
+        dressed = all(not any(x.startswith("equip:") for x in fx.agent.reports[-1].options) for fx in (a, b))
+        quiet = quiet + 1 if dressed else 0
+        if t >= 8 and quiet >= 3:      # the re-issued kit takes a few ticks to show up in the pack
+            return t + 1
+    return max_ticks
 
 
 def run_round(a: Fighter, b: Fighter, clients: dict, max_ticks: int, pump_ms: int, log_dir: str, n: int, speech) -> dict:
@@ -140,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--gm-user", default="anima3"); ap.add_argument("--gm-pass", default="anima3")
     ap.add_argument("--pump-ms", type=int, default=250); ap.add_argument("--speech", action="store_true")
     ap.add_argument("--log-dir", default=".logs/duel")
+    ap.add_argument("--monitor-base", type=int, default=8811, help="anima-client spectator views: A on this port, B on the next (0 = off)")
+    ap.add_argument("--open", action="store_true", help="open both spectator views in the browser")
     args = ap.parse_args(argv)
 
     a, b = parse(args.a), parse(args.b)
@@ -154,11 +186,18 @@ def main(argv: list[str] | None = None) -> int:
         speech = QwenSpeech(qc, None)
     import os
     os.makedirs(args.log_dir, exist_ok=True)
-    for fx in (a, b):
-        fx.body = BridgeBody.spawn(args.host, args.port, fx.account, fx.account)
+    for i, fx in enumerate((a, b)):
+        port = (args.monitor_base + i) if args.monitor_base else None
+        fx.body = BridgeBody.spawn(args.host, args.port, fx.account, fx.account, monitor_port=port)
         fx.serial = int(fx.body.ready["player"]["serial"])
         for _ in range(3):
             fx.body.pump(args.pump_ms)
+        if port:
+            time.sleep(0.5)
+            print(f"watch {fx.persona.name}: {fx.body.monitor_url or f'http://127.0.0.1:{port}/'}", flush=True)
+            if args.open:
+                import subprocess
+                subprocess.Popen(["open", fx.body.monitor_url or f"http://127.0.0.1:{port}/"])
     gm_body = BridgeBody.spawn(args.host, args.port, args.gm_user, args.gm_pass)
     gm = Gm(gm_body)
     try:
@@ -169,20 +208,23 @@ def main(argv: list[str] | None = None) -> int:
         gm.journal_after("[Hide", pumps=2)
         print(f"\n== {a.persona.name} ({a.backend}) vs {b.persona.name} ({b.backend}) — {args.rules}, {args.weapon}, {args.armor}, best of {args.rounds} ==", flush=True)
         results = []
+        clients.setdefault("scripted", build_client("scripted"))
         for n in range(1, args.rounds + 1):
             for fx, spot in ((a, ARENA[0]), (b, ARENA[1])):
-                reset(gm, fx, spot)
-            for _ in range(4):
-                a.body.pump(args.pump_ms); b.body.pump(args.pump_ms)
+                reset(gm, fx, spot, args.rules, args.weapon, args.armor)
+            ready_in = prep(a, b, clients, args.pump_ms)
+            for fx, spot in ((a, ARENA[0]), (b, ARENA[1])):
+                gm.command_on(f"[Set X {spot.x} Y {spot.y} Z {spot.z}", fx.serial)   # back to the marks after dressing
             res = run_round(a, b, clients, args.max_ticks, args.pump_ms, args.log_dir, n, speech)
+            res["prep_ticks"] = ready_in
             results.append(res)
             ra, rb = res[a.persona.name], res[b.persona.name]
-            print(f"round {n}: winner={res['winner'] or 'draw'} in {max(ra['ticks'], rb['ticks'])} ticks ({res['seconds']}s) | "
+            print(f"round {n}: winner={res['winner'] or 'draw'} in {max(ra['ticks'], rb['ticks'])} ticks ({res['seconds']}s, dressed in {res['prep_ticks']}) | "
                   f"{a.persona.name} hp={ra['hp']:.0%} bandages={ra['bandages']} model={ra['model']} | "
                   f"{b.persona.name} hp={rb['hp']:.0%} bandages={rb['bandages']} model={rb['model']}", flush=True)
         print(f"\nfinal: {a.persona.name} ({a.backend}) {a.wins} — {b.wins} {b.persona.name} ({b.backend})")
         for fx in (a, b):
-            reset(gm, fx, ARENA[0] if fx is a else ARENA[1])
+            reset(gm, fx, ARENA[0] if fx is a else ARENA[1], args.rules, args.weapon, args.armor)
     finally:
         gm_body.close()
         for fx in (a, b):
