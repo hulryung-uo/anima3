@@ -156,7 +156,8 @@ def run_round(a: Fighter, b: Fighter, clients: dict, max_ticks: int, pump_ms: in
     for fx in (a, b):
         r = fx.agent.reports[-1]
         res[fx.persona.name] = {"dead": r.dead, "hp": round(r.hp_pct, 2), "ticks": r.tick,
-                                "bandages": sum(1 for x in fx.agent.reports if x.chosen == "bandage"),
+                                "bandages": sum(1 for _, pid, v in fx.agent.proc_log if pid == "bandage" and v == "ok"),
+                                "slipped": sum(1 for _, pid, v in fx.agent.proc_log if pid == "bandage" and v == "slipped"),
                                 "attacks": sum(1 for x in fx.agent.reports if str(x.chosen).startswith("attack:")),
                                 "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
     dead = [fx for fx in (a, b) if fx.agent.reports[-1].dead]
@@ -321,8 +322,8 @@ def main(argv: list[str] | None = None) -> int:
             results.append(res)
             ra, rb = res[a.persona.name], res[b.persona.name]
             print(f"round {n}: winner={res['winner'] or 'draw'} in {max(ra['ticks'], rb['ticks'])} ticks ({res['seconds']}s, dressed in {res['prep_ticks']}) | "
-                  f"{a.persona.name} hp={ra['hp']:.0%} bandages={ra['bandages']} model={ra['model']} | "
-                  f"{b.persona.name} hp={rb['hp']:.0%} bandages={rb['bandages']} model={rb['model']}", flush=True)
+                  f"{a.persona.name} hp={ra['hp']:.0%} bandages={ra['bandages']}(+{ra['slipped']} slipped) model={ra['model']} | "
+                  f"{b.persona.name} hp={rb['hp']:.0%} bandages={rb['bandages']}(+{rb['slipped']} slipped) model={rb['model']}", flush=True)
         print(f"\nfinal: {a.persona.name} ({a.backend}) {a.wins} — {b.wins} {b.persona.name} ({b.backend})")
         for fx in (a, b):
             reset(gm, fx, ARENA[0] if fx is a else ARENA[1], args.rules, args.weapon, args.armor)
