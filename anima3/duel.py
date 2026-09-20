@@ -169,6 +169,87 @@ def run_round(a: Fighter, b: Fighter, clients: dict, max_ticks: int, pump_ms: in
     return res
 
 
+# --- Server-refereed mode: ServUO's duel system (Scripts/Services/Dueling) owns the rounds ---
+import re
+
+DUEL_LINE = re.compile(r"^\[Duel\]\s*(.*)$")
+
+
+class ServerDuel:
+    """Drive a match through the shard's own duel commands and read its `[Duel]` journal
+    lines. The brain only speaks: `[Challenge <name> <rounds> <rules>`, `[Accept`."""
+
+    def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str) -> None:
+        self.a, self.b, self.rounds, self.rules = a, b, rounds, rules_token
+        self.seen: set[tuple[int, str]] = set()
+        self.state = "idle"
+        self.rounds_done: list[str] = []
+        self.match: str | None = None
+
+    def lines(self) -> list[str]:
+        out = []
+        for fx in (self.a, self.b):
+            for t, ser, text in fx.agent.journal_log:
+                m = DUEL_LINE.match(text.strip())
+                if m and (fx.serial, text) not in self.seen:
+                    self.seen.add((fx.serial, text))
+                    out.append(m.group(1))
+        return out
+
+    def step(self) -> None:
+        for line in self.lines():
+            low = line.lower()
+            if "has challenged" in low and self.state == "challenged":
+                self.b.body.act({"type": "Say", "text": "[Accept"})
+                self.state = "accepted"
+            elif low.startswith("fight"):
+                for fx, other in ((self.a, self.b), (self.b, self.a)):
+                    fx.agent.memory["duel_opponent"] = other.serial
+                self.state = "fighting"
+            elif low.startswith("round ") and ":" in line:
+                self.rounds_done.append(line)
+                for fx in (self.a, self.b):
+                    fx.agent.memory.pop("duel_opponent", None)
+                self.state = "between"
+            elif low.startswith(("match:", "draw:")):
+                self.match = line
+                for fx in (self.a, self.b):
+                    fx.agent.memory.pop("duel_opponent", None)
+                self.state = "done"
+
+    def challenge(self) -> None:
+        self.a.body.act({"type": "Say", "text": f"[Challenge {self.b.persona.name} {self.rounds} {self.rules}"})
+        self.state = "challenged"
+
+
+def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int) -> dict:
+    for fx in (a, b):
+        fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms,
+                         log_path=f"{log_dir}/server-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
+        fx.agent.memory["duel"] = True
+    ref = ServerDuel(a, b, rounds, rules_token)
+    stop = threading.Event()
+
+    def loop(fx: Fighter) -> None:
+        while not stop.is_set() and fx.agent.tick_no < max_ticks:
+            fx.agent.tick()
+
+    threads = [threading.Thread(target=loop, args=(fx,), daemon=True, name=fx.persona.name) for fx in (a, b)]
+    for t in threads:
+        t.start()
+    time.sleep(1.0)
+    ref.challenge()
+    t0 = time.time()
+    while ref.state != "done" and any(t.is_alive() for t in threads) and time.time() - t0 < max_ticks * pump_ms / 1000:
+        time.sleep(0.3)
+        ref.step()
+    stop.set()
+    for t in threads:
+        t.join(timeout=5)
+    return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match, "seconds": round(time.time() - t0, 1),
+            "journal_tail": [x[2] for fx in (a, b) for x in fx.agent.journal_log[-6:] if x[2].startswith("[Duel]")]}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="anima3.duel")
     ap.add_argument("--a", required=True, help="account:persona:backend"); ap.add_argument("--b", required=True)
@@ -181,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--log-dir", default=".logs/duel")
     ap.add_argument("--monitor-base", type=int, default=8811, help="anima-client spectator views: A on this port, B on the next (0 = off)")
     ap.add_argument("--open", action="store_true", help="open both spectator views in the browser")
+    ap.add_argument("--referee", choices=["gm", "server"], default="gm", help="gm: this script referees; server: the shard's duel system does")
     args = ap.parse_args(argv)
 
     a, b = parse(args.a), parse(args.b)
@@ -216,6 +298,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"staged {fx.persona.name} ({fx.backend}, {args.rules}, {args.weapon}, {args.armor}): {rep}", flush=True)
         gm.journal_after("[Hide", pumps=2)
         print(f"\n== {a.persona.name} ({a.backend}) vs {b.persona.name} ({b.backend}) — {args.rules}, {args.weapon}, {args.armor}, best of {args.rounds} ==", flush=True)
+        if args.referee == "server":
+            res = run_server_match(a, b, clients, args.rounds, f"{args.rules}-{args.weapon}", args.pump_ms, args.log_dir,
+                                   max_ticks=args.max_ticks * args.rounds + 200)
+            print(f"server duel: state={res['state']} seconds={res['seconds']}")
+            for line in res["rounds"]:
+                print("  [Duel]", line)
+            print("  match:", res["match"] or "(no match line)")
+            if res["state"] != "done":
+                print("  journal tail:", res["journal_tail"])
+            return 0
         results = []
         clients.setdefault("scripted", build_client("scripted"))
         for n in range(1, args.rounds + 1):
