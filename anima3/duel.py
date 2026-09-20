@@ -190,7 +190,8 @@ class ServerDuel:
 
     def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str) -> None:
         self.a, self.b, self.rounds, self.rules = a, b, rounds, rules_token
-        self.seen: set[tuple[int, str]] = set()
+        self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # journal_log consumed per fighter
+        self.last: str | None = None                             # both fighters receive every line: skip the twin
         self.state = "idle"
         self.rounds_done: list[str] = []
         self.match: str | None = None
@@ -199,10 +200,13 @@ class ServerDuel:
     def lines(self) -> list[str]:
         out = []
         for fx in (self.a, self.b):
-            for t, ser, text in fx.agent.journal_log:
+            log = fx.agent.journal_log
+            fresh = log[self.pos[fx.serial]:] if self.pos[fx.serial] <= len(log) else log
+            self.pos[fx.serial] = len(log)
+            for t, ser, text in fresh:
                 m = DUEL_LINE.match(text.strip())
-                if m and (fx.serial, text) not in self.seen:
-                    self.seen.add((fx.serial, text))
+                if m and m.group(1) != self.last:
+                    self.last = m.group(1)
                     out.append(m.group(1))
         return out
 

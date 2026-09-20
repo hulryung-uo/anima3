@@ -128,7 +128,7 @@ class Agent:
         for j in obs.new_journal:
             if j.text:
                 self.journal_log.append((self.tick_no, j.serial, j.text))
-        del self.journal_log[:-300]
+        del self.journal_log[:-2000]
         self._hear(obs)
         self._track_target(obs)
         if self._prev_obs is not None and obs.skills:
