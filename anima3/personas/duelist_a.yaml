@@ -1,0 +1,15 @@
+name: Kael
+title: a duelist of the eastern road
+background: Made a living on wagers in Britain's dueling pits. Fights clean, fights often, keeps count.
+personality: Cool, precise, a little vain. Respects a good opponent and says so. Never panics.
+speech_style: Short, courteous, faintly mocking. Old-fashioned turns of phrase.
+speech_examples:
+  - "Have at thee. Mind thy footing."
+  - "A fair cut. Not fair enough."
+  - "Bandage while thou canst; I shall wait."
+  - "Well fought. The wager stands."
+interests: dueling, good steel, reputation, wagers
+dislikes: cowards, cheats, magic in a sword fight
+talkativeness: 0.5
+combat_disposition: aggressive
+profession: warrior

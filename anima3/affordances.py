@@ -50,9 +50,12 @@ class Affordance:
 HOLD = Affordance("hold", "Do nothing this moment; watch and wait.")
 
 #: Gear worth wearing, by graphic -> (name, equip layer). Layers per ServUO (anima2 live-proven).
-GEAR_GRAPHICS = {0x13FF: ("katana", 0x01), 0x1415: ("plate chest", 0x0D), 0x1411: ("plate legs", 0x04),
-                 0x1410: ("plate arms", 0x13), 0x1413: ("plate gorget", 0x0A), 0x1414: ("plate gloves", 0x07),
-                 0x1412: ("plate helm", 0x06)}
+GEAR_GRAPHICS = {0x13FF: ("katana", 0x01), 0x0F5E: ("broadsword", 0x01), 0x13B9: ("viking sword", 0x01),
+                 0x143E: ("halberd", 0x02), 0x0F4D: ("bardiche", 0x02), 0x1B73: ("buckler", 0x02),
+                 0x1415: ("plate chest", 0x0D), 0x1411: ("plate legs", 0x04), 0x1410: ("plate arms", 0x13),
+                 0x1413: ("plate gorget", 0x0A), 0x1414: ("plate gloves", 0x07), 0x1412: ("plate helm", 0x06),
+                 0x13CC: ("leather tunic", 0x0D), 0x13CB: ("leather leggings", 0x04), 0x13CD: ("leather sleeves", 0x13),
+                 0x13C6: ("leather gloves", 0x07), 0x13C7: ("leather gorget", 0x0A), 0x1DB9: ("leather cap", 0x06)}
 
 
 def _equip_proc(serial: int, layer: int):
@@ -241,6 +244,10 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     friends = memory.get("friends", set())
     now = memory.get("tick", 0)
     live = [m for m in f.hostiles if black.get(m.serial, -1) <= now and m.serial not in friends]
+    duel = memory.get("duel_opponent")
+    if duel is not None:   # in a duel the opponent is the only threat, whatever their notoriety
+        opp = next((m for m in obs.mobiles if m.serial == duel), None)
+        live = [opp] if opp is not None and opp.reachable else []
     threat = live[0] if live else None
 
     def add_bandage() -> None:
@@ -269,6 +276,8 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
             return out or [HOLD]
         can_fight = persona.combat_disposition != "pacifist" and (
             persona.combat_disposition != "defensive" or threat.distance <= 2 or memory.get("engaged") == threat.serial)
+        if duel is not None and f.hp_pct < 0.45:
+            add_bandage()   # the duelist's rule: under half, bind the wound first
         if can_fight:
             who = threat.name or "the creature"
             if threat.distance <= 1:
@@ -278,7 +287,7 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
                 out.append(Affordance(f"attack:{threat.serial}", f"Close in on {who} and fight.",
                                       procedure=_chase_proc(threat.serial, not f.war)))
         add_flee()
-        if f.hp_pct < 0.7:
+        if f.hp_pct < (0.85 if duel is not None else 0.7) and not any(a.id == "bandage" for a in out):
             add_bandage()
         out.append(HOLD)
         # A threat that is not close does not stop a healthy character's day: the economy
