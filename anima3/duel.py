@@ -28,7 +28,12 @@ from .decision import build_client
 from .gm import Gm
 from .persona import Persona
 
-ARENA = (Pos(2602, 488, 20), Pos(2607, 488, 20))     # the open ground south-west of the ridge
+ARENA = (Pos(2602, 488, 20), Pos(2607, 488, 20))     # GM-refereed marks on the open ground (pre-arena)
+#: The shard's own arena (Scripts/Services/Dueling): marks, lobby exits, spectator seat.
+SERVER_MARKS = (Pos(2599, 491, 20), Pos(2605, 491, 20))
+SERVER_LOBBY = (Pos(2599, 496, 20), Pos(2605, 496, 20))
+SERVER_SEAT = Pos(2602, 495, 20)
+RULE_SET_SKILLS = ("Swords", "Tactics", "Anatomy", "Healing", "MagicResist", "Parry", "Hiding", "Wrestling")
 
 TEMPLATES = {
     "5x": {"Swords": 100, "Tactics": 100, "Anatomy": 100, "Healing": 100, "MagicResist": 100},
@@ -66,6 +71,9 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, r
         template.pop("Swords"); template["Wrestling"] = 100
     for sk, v in template.items():
         gm.command_on(f"[Set Skills.{sk}.Base {v}", fx.serial)
+    for sk in RULE_SET_SKILLS:      # the 5x/7x check sums all eight: zero what the template leaves out
+        if sk not in template:
+            gm.command_on(f"[Set Skills.{sk}.Base 0", fx.serial)
     for st, v in STATS.items():
         gm.command_on(f"[Set {st} {v}", fx.serial)
     obs = fx.body.observe()
@@ -186,6 +194,7 @@ class ServerDuel:
         self.state = "idle"
         self.rounds_done: list[str] = []
         self.match: str | None = None
+        self.log: list[str] = []
 
     def lines(self) -> list[str]:
         out = []
@@ -200,6 +209,7 @@ class ServerDuel:
     def step(self) -> None:
         for line in self.lines():
             low = line.lower()
+            self.log.append(line)
             if "has challenged" in low and self.state == "challenged":
                 self.b.body.act({"type": "Say", "text": "[Accept"})
                 self.state = "accepted"
@@ -207,15 +217,18 @@ class ServerDuel:
                 for fx, other in ((self.a, self.b), (self.b, self.a)):
                     fx.agent.memory["duel_opponent"] = other.serial
                 self.state = "fighting"
-            elif low.startswith("round ") and ":" in line:
+            elif re.match(r"^round \d+: ", low):                       # "Round 1: Kael defeats Rook (...)"
                 self.rounds_done.append(line)
                 for fx in (self.a, self.b):
                     fx.agent.memory.pop("duel_opponent", None)
                 self.state = "between"
-            elif low.startswith(("match:", "draw:")):
+            elif low.startswith(("match:", "match aborted:")):
                 self.match = line
                 for fx in (self.a, self.b):
                     fx.agent.memory.pop("duel_opponent", None)
+                self.state = "done"
+            elif low.startswith(("cannot start", "no pending", "unknown rule", "the arena is busy", "rounds must", "staff only")):
+                self.match = "ERROR: " + line
                 self.state = "done"
 
     def challenge(self) -> None:
@@ -247,8 +260,12 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
     stop.set()
     for t in threads:
         t.join(timeout=5)
+    per = {}
+    for fx in (a, b):
+        per[fx.persona.name] = {"bandages": sum(1 for _, pid, v in fx.agent.proc_log if pid == "bandage" and v == "ok"),
+                                "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
     return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match, "seconds": round(time.time() - t0, 1),
-            "journal_tail": [x[2] for fx in (a, b) for x in fx.agent.journal_log[-6:] if x[2].startswith("[Duel]")]}
+            "duel_lines": ref.log, "per": per}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -300,14 +317,16 @@ def main(argv: list[str] | None = None) -> int:
         gm.journal_after("[Hide", pumps=2)
         print(f"\n== {a.persona.name} ({a.backend}) vs {b.persona.name} ({b.backend}) — {args.rules}, {args.weapon}, {args.armor}, best of {args.rounds} ==", flush=True)
         if args.referee == "server":
+            gm.command_on(f"[Set X {SERVER_LOBBY[0].x} Y {SERVER_LOBBY[0].y} Z {SERVER_LOBBY[0].z}", a.serial)
+            gm.command_on(f"[Set X {SERVER_LOBBY[1].x} Y {SERVER_LOBBY[1].y} Z {SERVER_LOBBY[1].z}", b.serial)
             res = run_server_match(a, b, clients, args.rounds, f"{args.rules}-{args.weapon}", args.pump_ms, args.log_dir,
                                    max_ticks=args.max_ticks * args.rounds + 200)
             print(f"server duel: state={res['state']} seconds={res['seconds']}")
-            for line in res["rounds"]:
-                print("  [Duel]", line)
+            for line in res["duel_lines"]:
+                if not re.match(r"^round \d+ of \d+ begins in [1-4]", line.lower()):
+                    print("  [Duel]", line)
             print("  match:", res["match"] or "(no match line)")
-            if res["state"] != "done":
-                print("  journal tail:", res["journal_tail"])
+            print("  fighters:", res["per"])
             return 0
         results = []
         clients.setdefault("scripted", build_client("scripted"))

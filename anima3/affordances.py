@@ -267,9 +267,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     now = memory.get("tick", 0)
     live = [m for m in f.hostiles if black.get(m.serial, -1) <= now and m.serial not in friends]
     duel = memory.get("duel_opponent")
-    if duel is not None:   # in a duel the opponent is the only threat, whatever their notoriety
-        opp = next((m for m in obs.mobiles if m.serial == duel), None)
-        live = [opp] if opp is not None and opp.reachable else []
+    if memory.get("duel"):   # in a duel the opponent is the only threat, whatever their notoriety —
+        opp = next((m for m in obs.mobiles if m.serial == duel), None) if duel is not None else None
+        live = [opp] if opp is not None and opp.reachable else []   # and nobody at all before the bell
     threat = live[0] if live else None
 
     def add_bandage() -> None:
