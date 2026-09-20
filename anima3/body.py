@@ -261,6 +261,7 @@ class FakeBody:
                     if it.amount <= 0:
                         self.pack.remove(it)
                     p.hits = min(p.hits_max, p.hits + 15)
+                    self.journal.append(Journal(0, "", "You finish applying the bandages.", 0, 0, 500969))
                     break
         elif t == "Say":
             self.journal.append(Journal(p.serial, p.name, action["text"], 0, 0, 0))

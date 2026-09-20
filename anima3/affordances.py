@@ -187,6 +187,28 @@ def _unburden_proc(item: Item, amount: int):
     return proc
 
 
+BANDAGE_DONE = {500969, 500967, 500968, 500955}   # finished / barely helped / not damaged
+BANDAGE_SLIP = {500961, 500962, 500963, 500964}
+
+
+def _bandage_proc(bandage_serial: int, target_serial: int):
+    """Apply one bandage and wait for it to finish: re-applying every tick cancels the
+    previous one and nobody ever heals (the 199-bandage draws). The character keeps
+    swinging meanwhile — the server's combatant is unchanged."""
+    def proc(obs0, memory):
+        hp0 = obs0.player.hits
+        obs = yield bandage_target(bandage_serial, target_serial)
+        for _ in range(24):                      # Healing 100 / Dex 100 finishes in ~3–5 s
+            cl = {j.cliloc for j in obs.new_journal}
+            if cl & BANDAGE_DONE or obs.player.hits > hp0 + 5:
+                return "ok"
+            if cl & BANDAGE_SLIP:
+                return "slipped"
+            obs = yield None
+        return "timeout"
+    return proc
+
+
 def _loot_proc(corpse_serial: int):
     """Open the corpse, then lift its gold and drop it into the backpack."""
     def proc(obs0, memory):
@@ -252,8 +274,8 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
 
     def add_bandage() -> None:
         if f.bandages is not None:
-            out.append(Affordance("bandage", "Bandage your own wounds (takes a few seconds).",
-                                  (bandage_target(f.bandages.serial, p.serial),)))
+            out.append(Affordance("bandage", "Bandage your own wounds (takes a few seconds; you keep fighting).",
+                                  procedure=_bandage_proc(f.bandages.serial, p.serial)))
 
     def add_flee() -> None:
         steps = _step_options(obs, away_from=threat.pos if threat else None)

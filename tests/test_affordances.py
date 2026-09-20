@@ -182,3 +182,14 @@ def test_heavy_pack_offers_dropping_alongside_other_verbs():
     obs = w.observe()
     got = [a.id for a in enumerate_affordances(obs, facts(obs), P, {})]
     assert got[0].startswith("drop:") and len(got) > 1
+
+
+def test_bandage_is_a_procedure_that_waits_for_the_wrap_to_finish():
+    from anima3.agent import Agent
+    from anima3.contract import BANDAGE_GRAPHIC
+    from anima3.decision import Scripted
+    w = FakeBody(); w.player.hits = 20; w.add_pack_item(BANDAGE_GRAPHIC, 3)
+    ag = Agent(w, Persona(name="G"), Scripted(), pump_ms=0)
+    ag.run(3)
+    sent = [x for x in w.log if x["type"] == "BandageTarget"]
+    assert len(sent) == 1 and any(v == "ok" for _, pid, v in ag.proc_log if pid == "bandage")
