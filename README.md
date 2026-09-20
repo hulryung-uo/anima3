@@ -264,10 +264,21 @@ Watch from a spectator account in anima-client's own renderer: `target/release/p
 `[Set Blessed true` on it — the seat against the south fence sees the whole floor, and it stays
 up between matches (a bridge's `--monitor` view lives only while that bridge runs).
 
-**First refereed match** (5x, katana, leather): Rook (rule) 2 – 0 Kael (Qwen); round 1 a 180 s
-draw, then 92 s and 33 s wins. The telling number: when *attack* was on Kael's menu he chose it
-**115 of 115 times**, at 35–45% health included, where the rule binds its wounds first. The raw
-logprob head fights like a berserker; the rule, which bandages under 45%, wins.
+**Batch under the shard's referee** (5x, katana, leather, best of five, same character pair,
+Kael on the left):
+
+| Kael's backend | vs Rook (rule) | rounds | Kael's bandages |
+|---|---|---|---|
+| rule | **Kael 3 – 1** | 162 s, 70 s, 112 s, 84 s — ~40 swings each | 2 |
+| **Qwen** (logprob) | **Rook 2 – 0**, three 180 s draws | draws end with both under 40% | **0** |
+| **jeff** (encoder) | **Rook 3 – 0** | 65 s, 45 s, 71 s | 0 |
+
+The rule-vs-rule match shows the setup is symmetric (the dice decide). Against the same rule,
+the raw Qwen head never bandages — when *attack* was on its menu it chose it **115 of 115
+times** in the first match, at 35–45% health included — so it loses the slugfests and only
+draws by running under 35%. jeff, half of whose picks fell back to the rule anyway, lost every
+round. Neither decision head adds tactical judgement here; the one thing the hand rule knows
+(bind your wounds under 45%) is exactly what decides a 5x duel.
 
 What the ring taught: gear goes to the corpse on death in Felucca (the shard's duel service now
 keeps it); re-applying a bandage every tick cancels the previous one, so bandaging is a
