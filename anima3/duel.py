@@ -94,7 +94,16 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, r
 
 def reset(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str) -> None:
     """Resurrect, restore, and re-kit: a fallen duelist's gear lies on the corpse (Felucca)."""
-    gm.command_on("[Resurrect", fx.serial)
+    for attempt in range(4):                       # wait until the body agrees the ghost is gone
+        gm.command_on("[Resurrect", fx.serial)
+        alive = False
+        for _ in range(6):
+            fx.body.pump(200)
+            if not fx.body.observe().player.dead:
+                alive = True
+                break
+        if alive:
+            break
     gm.command_on(f"[Set X {spot.x} Y {spot.y} Z {spot.z}", fx.serial)
     gm.command_on("[Set Hits 100", fx.serial)
     gm.command_on("[Set Stam 100", fx.serial)
