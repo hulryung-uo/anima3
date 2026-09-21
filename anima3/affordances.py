@@ -209,6 +209,29 @@ def _bandage_proc(bandage_serial: int, target_serial: int):
     return proc
 
 
+def _disengage_bandage_proc(bandage_serial: int, target_serial: int, threat_serial: int):
+    """The pit tactic: break contact (run three steps away), bind the wound where the
+    blade cannot reach, then let the menu re-engage. A bandage applied while adjacent
+    to a swinging opponent slips almost every time (measured: 0 of 9 finished)."""
+    def proc(obs0, memory):
+        obs = obs0
+        for _ in range(3):
+            t = next((m for m in obs.mobiles if m.serial == threat_serial), None)
+            if t is None:
+                break
+            steps = _step_options(obs, away_from=t.pos)
+            if not steps:
+                break
+            obs = yield walk(steps[0][0], run=True)
+        obs = yield None
+        t = next((m for m in obs.mobiles if m.serial == threat_serial), None)
+        if t is not None and t.distance <= 1:
+            return "cornered"
+        verdict = yield from _bandage_proc(bandage_serial, target_serial)(obs, memory)
+        return verdict
+    return proc
+
+
 def _loot_proc(corpse_serial: int):
     """Open the corpse, then lift its gold and drop it into the backpack."""
     def proc(obs0, memory):
@@ -273,7 +296,12 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
     threat = live[0] if live else None
 
     def add_bandage() -> None:
-        if f.bandages is not None:
+        if f.bandages is None:
+            return
+        if duel is not None and threat is not None and threat.distance <= 2:
+            out.append(Affordance("bandage", "Break away three steps and bind your wounds out of reach, then re-engage.",
+                                  procedure=_disengage_bandage_proc(f.bandages.serial, p.serial, threat.serial)))
+        else:
             out.append(Affordance("bandage", "Bandage your own wounds (takes a few seconds; you keep fighting).",
                                   procedure=_bandage_proc(f.bandages.serial, p.serial)))
 
