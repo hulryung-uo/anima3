@@ -64,7 +64,8 @@ class Agent:
         self.chronicle_path = Path(chronicle_path) if chronicle_path else None
         self.aim: str | None = None
         self._reflecting = False
-        self.journal_log: list[tuple[int, int, str]] = []   # (tick, speaker serial, text) — last 300 lines
+        self.journal_log: list[tuple[int, int, str]] = []   # (tick, speaker serial, text), trimmed
+        self.journal_seq = 0                                 # total lines ever appended (the trim-safe cursor)
         self.triage, self.speech = triage, speech
         self.speech_log: list[tuple[int, str, str | None, str]] = []   # (tick, heard, said, reason)
         self._speech_thread: threading.Thread | None = None
@@ -135,6 +136,7 @@ class Agent:
         for j in obs.new_journal:
             if j.text:
                 self.journal_log.append((self.tick_no, j.serial, j.text))
+                self.journal_seq += 1
         del self.journal_log[:-2000]
         self._hear(obs)
         self._track_target(obs)

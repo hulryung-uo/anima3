@@ -231,7 +231,8 @@ class ServerDuel:
 
     def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str) -> None:
         self.a, self.b, self.rounds, self.rules = a, b, rounds, rules_token
-        self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # journal_log consumed per fighter
+        self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # lines consumed per fighter, by SEQUENCE
+        self.lost: int = 0                                       # lines that scrolled out before we read them
         self.recent: list[str] = []                              # both fighters receive every line: skip the twin
         self.tries = 0
         self.error: str | None = None
@@ -243,9 +244,14 @@ class ServerDuel:
     def lines(self) -> list[str]:
         out = []
         for fx in (self.a, self.b):
-            log = fx.agent.journal_log
-            fresh = log[self.pos[fx.serial]:] if self.pos[fx.serial] <= len(log) else log
-            self.pos[fx.serial] = len(log)
+            log, seq = fx.agent.journal_log, fx.agent.journal_seq
+            first_held = seq - len(log)                 # sequence number of log[0]
+            start = self.pos[fx.serial] - first_held
+            if start < 0:                               # the trim ate lines we never read
+                self.lost += -start
+                start = 0
+            fresh = log[start:]
+            self.pos[fx.serial] = seq
             for t, ser, text in fresh:
                 m = DUEL_LINE.match(text.strip())
                 if m and m.group(1) not in self.recent:
@@ -338,7 +344,7 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
                                 "meditations": sum(1 for _, pid, v in fx.agent.proc_log if pid == "meditate" and v == "ok"),
                                 "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
     return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match or (f"(no match; last error: {ref.error})" if ref.error else None),
-            "seconds": round(time.time() - t0, 1),
+            "lost_lines": ref.lost, "seconds": round(time.time() - t0, 1),
             "duel_lines": ref.log, "per": per}
 
 
@@ -431,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
                       f"| {b.persona.name} casts={pb['casts_ok']} fail={pb['cast_fail']}", flush=True)
                 if res["state"] != "done":
                     print("   (match did not finish: state", res["state"], ")", flush=True)
+                if res.get("lost_lines"):
+                    print(f"   (referee missed {res['lost_lines']} journal lines)", flush=True)
                 if learner is not None:
                     from .learn import next_aim
                     aim_a = next_aim(learner, a.persona, aim_a, res, wins, a.persona.name, b.persona.name, playbook, n)

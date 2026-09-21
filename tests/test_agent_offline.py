@@ -94,3 +94,18 @@ def test_agent_opens_its_backpack_on_the_first_tick():
     ag = Agent(w, Persona(name="G"), Scripted(), pump_ms=0)
     ag.tick()
     assert any(x["type"] == "Use" and x["serial"] == 0x4000_0001 for x in w.log), w.log
+
+
+def test_journal_sequence_survives_trimming():
+    w = FakeBody(); sara = w.add_person(2, 0, "Sara")
+    ag = Agent(w, Persona(name="G"), Scripted(), pump_ms=0)
+    for i in range(2100):
+        w.hear(sara, f"line {i}")
+        ag._last_obs = w.observe()
+        for j in ag._last_obs.new_journal:
+            if j.text:
+                ag.journal_log.append((i, j.serial, j.text)); ag.journal_seq += 1
+        del ag.journal_log[:-2000]
+    assert ag.journal_seq == 2100 and len(ag.journal_log) == 2000
+    first_held = ag.journal_seq - len(ag.journal_log)
+    assert first_held == 100 and ag.journal_log[0][2] == "line 100"
