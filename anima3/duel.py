@@ -36,11 +36,20 @@ SERVER_SEAT = Pos(2602, 495, 20)
 #: The shard's four rings: {index: (mark A, mark B, exit A, exit B, spectator seat)}. A match
 #: takes the lowest-numbered free ring, so an arm's `--arena` only decides where it waits and
 #: where its spectator sits; the Start line reports the ring actually used.
+def _ring(x: int, y: int, z: int = 15, gap: int = 6) -> tuple[Pos, Pos, Pos, Pos, Pos]:
+    """A standard ring from its west mark: marks `gap` apart, exits and seat on the lobby row."""
+    ex = y + 5
+    return (Pos(x, y, z), Pos(x + gap, y, z), Pos(x, ex, z), Pos(x + gap, ex, z), Pos(x + gap // 2, ex + 1, z))
+
+
 ARENAS: dict[int, tuple[Pos, Pos, Pos, Pos, Pos]] = {
     1: (Pos(2599, 491, 20), Pos(2605, 491, 20), Pos(2599, 496, 20), Pos(2605, 496, 20), Pos(2602, 495, 20)),
-    2: (Pos(5177, 320, 15), Pos(5183, 320, 15), Pos(5177, 325, 15), Pos(5183, 325, 15), Pos(5180, 326, 15)),
-    3: (Pos(5257, 320, 15), Pos(5263, 320, 15), Pos(5257, 325, 15), Pos(5263, 325, 15), Pos(5260, 326, 15)),
-    4: (Pos(5337, 320, 15), Pos(5343, 320, 15), Pos(5337, 325, 15), Pos(5343, 325, 15), Pos(5340, 326, 15)),
+    2: _ring(5177, 320), 3: _ring(5257, 320), 4: _ring(5337, 320),
+    5: _ring(5177, 378), 6: _ring(5257, 378), 7: _ring(5337, 378),
+    8: _ring(5177, 436), 9: _ring(5257, 436), 10: _ring(5337, 436),
+    11: _ring(5177, 494), 12: _ring(5257, 494),
+    13: _ring(5309, 490, gap=14),   # LARGE 21x13 — kiting and meditation become viable
+    14: _ring(5136, 327, gap=14),   # CORRIDOR 25x3 — no kiting at all
 }
 RULE_SET_SKILLS = ("Swords", "Tactics", "Anatomy", "Healing", "MagicResist", "Parry", "Hiding", "Wrestling")
 #: Reagents each mage starts every match with (≈20 stones total; a 5-round match spends ~40).
@@ -238,8 +247,8 @@ class ServerDuel:
     """Drive a match through the shard's own duel commands and read its `[Duel]` journal
     lines. The brain only speaks: `[Challenge <name> <rounds> <rules>`, `[Accept`."""
 
-    def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str) -> None:
-        self.a, self.b, self.rounds, self.rules = a, b, rounds, rules_token
+    def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str, arena: int = 0) -> None:
+        self.a, self.b, self.rounds, self.rules, self.arena = a, b, rounds, rules_token, arena
         self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # lines consumed per fighter, by SEQUENCE
         self.lost: int = 0                                       # lines that scrolled out before we read them
         self.recent: list[str] = []                              # both fighters receive every line: skip the twin
@@ -296,7 +305,7 @@ class ServerDuel:
                 for fx in (self.a, self.b):
                     fx.agent.memory.pop("duel_opponent", None)
                 self.state = "done"
-            elif low.startswith(("all arenas are busy", "the arena is busy", "no pending", "is already in a match")) and self.tries < 40:
+            elif ("is busy" in low or low.startswith(("all arenas are busy", "no pending")) or "is already in a match" in low) and self.tries < 60:
                 self.state = "retry"          # the ring has not finished clearing: challenge again shortly
                 self.error = line
             elif low.startswith(("cannot start", "unknown rule", "rounds must", "staff only")):
@@ -305,19 +314,20 @@ class ServerDuel:
 
     def challenge(self) -> None:
         self.tries += 1
-        self.a.body.act({"type": "Say", "text": f"[Challenge {self.b.persona.name} {self.rounds} {self.rules}"})
+        ring = f" arena:{self.arena}" if self.arena else ""
+        self.a.body.act({"type": "Say", "text": f"[Challenge {self.b.persona.name} {self.rounds} {self.rules}{ring}"})
         self.state = "challenged"
 
 
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
-                     aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server") -> dict:
+                     aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0) -> dict:
     for fx, aim in zip((a, b), aims):
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms,
                          log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
         fx.agent.memory["duel"] = True
         fx.agent.memory["mage"] = mage
         fx.agent.aim = aim
-    ref = ServerDuel(a, b, rounds, rules_token)
+    ref = ServerDuel(a, b, rounds, rules_token, arena)
     stop = threading.Event()
 
     def loop(fx: Fighter) -> None:
@@ -452,7 +462,8 @@ def main(argv: list[str] | None = None) -> int:
                     for fx, spot in ((a, SERVER_MARKS[0]), (b, SERVER_MARKS[1])):
                         stage(gm, fx, spot, args.rules, args.weapon, args.armor, rename=False)
                 res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
-                                       max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}")
+                                       max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
+                                       arena=args.arena)
                 wins = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
                 for line in res["rounds"]:
                     m = re.match(r"Round \d+: (\w+) defeats", line)
