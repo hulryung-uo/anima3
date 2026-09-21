@@ -226,6 +226,8 @@ class ServerDuel:
         self.a, self.b, self.rounds, self.rules = a, b, rounds, rules_token
         self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # journal_log consumed per fighter
         self.recent: list[str] = []                              # both fighters receive every line: skip the twin
+        self.tries = 0
+        self.error: str | None = None
         self.state = "idle"
         self.rounds_done: list[str] = []
         self.match: str | None = None
@@ -266,11 +268,15 @@ class ServerDuel:
                 for fx in (self.a, self.b):
                     fx.agent.memory.pop("duel_opponent", None)
                 self.state = "done"
-            elif low.startswith(("cannot start", "no pending", "unknown rule", "the arena is busy", "rounds must", "staff only")):
+            elif low.startswith(("the arena is busy", "no pending")) and self.tries < 4:
+                self.state = "retry"          # the ring has not finished clearing: challenge again shortly
+                self.error = line
+            elif low.startswith(("cannot start", "unknown rule", "rounds must", "staff only")):
                 self.match = "ERROR: " + line
                 self.state = "done"
 
     def challenge(self) -> None:
+        self.tries += 1
         self.a.body.act({"type": "Say", "text": f"[Challenge {self.b.persona.name} {self.rounds} {self.rules}"})
         self.state = "challenged"
 
@@ -301,9 +307,16 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
     time.sleep(1.0)
     ref.challenge()
     t0 = time.time()
+    last_try = time.time()
     while ref.state != "done" and any(t.is_alive() for t in threads) and time.time() - t0 < max_ticks * pump_ms / 1000:
         time.sleep(0.3)
         ref.step()
+        if ref.state == "retry" and time.time() - last_try > 4:
+            last_try = time.time()
+            ref.challenge()
+        elif ref.state == "challenged" and time.time() - last_try > 20 and ref.tries < 4:
+            last_try = time.time()      # the challenge was never seen at all (line lost): say it again
+            ref.challenge()
     stop.set()
     for t in threads:
         t.join(timeout=5)
@@ -317,7 +330,8 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
                                 "cast_fail": dict(collections.Counter(v for (k, v) in casts.elements() if v != "ok")),
                                 "meditations": sum(1 for _, pid, v in fx.agent.proc_log if pid == "meditate" and v == "ok"),
                                 "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
-    return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match, "seconds": round(time.time() - t0, 1),
+    return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match or (f"(no match; last error: {ref.error})" if ref.error else None),
+            "seconds": round(time.time() - t0, 1),
             "duel_lines": ref.log, "per": per}
 
 
@@ -385,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
             tally = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
             curve = []
             for n in range(1, args.matches + 1):
+                if n > 1:
+                    time.sleep(4)        # let the ring clear before the next challenge
                 gm.command_on(f"[Set X {SERVER_LOBBY[0].x} Y {SERVER_LOBBY[0].y} Z {SERVER_LOBBY[0].z}", a.serial)
                 gm.command_on(f"[Set X {SERVER_LOBBY[1].x} Y {SERVER_LOBBY[1].y} Z {SERVER_LOBBY[1].z}", b.serial)
                 if mage:
