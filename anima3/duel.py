@@ -213,7 +213,7 @@ class ServerDuel:
     def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str) -> None:
         self.a, self.b, self.rounds, self.rules = a, b, rounds, rules_token
         self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # journal_log consumed per fighter
-        self.last: str | None = None                             # both fighters receive every line: skip the twin
+        self.recent: list[str] = []                              # both fighters receive every line: skip the twin
         self.state = "idle"
         self.rounds_done: list[str] = []
         self.match: str | None = None
@@ -227,8 +227,9 @@ class ServerDuel:
             self.pos[fx.serial] = len(log)
             for t, ser, text in fresh:
                 m = DUEL_LINE.match(text.strip())
-                if m and m.group(1) != self.last:
-                    self.last = m.group(1)
+                if m and m.group(1) not in self.recent:
+                    self.recent.append(m.group(1))
+                    del self.recent[:-8]
                     out.append(m.group(1))
         return out
 

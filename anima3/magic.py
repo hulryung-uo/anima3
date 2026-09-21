@@ -85,16 +85,19 @@ def cast_proc(spell: Spell, target_serial: int):
         if not obs.pending_target:
             return "no cursor"
         obs = yield target_object(target_serial)
+        low = mana0
         for _ in range(spell.cast_ticks + 4):
             cl = {j.cliloc for j in obs.new_journal}
             for c, v in VERDICTS.items():
                 if c in cl:
                     return v
-            if obs.player.mana <= mana0 - spell.mana:
+            low = min(low, obs.player.mana)
+            if low <= mana0 - spell.mana // 2:            # the mana went: the spell went off (regen can mask the full cost)
                 memory["last_cast"] = (memory.get("tick", 0), spell.key)
+                memory["recover_until"] = memory.get("tick", 0) + 3
                 return "ok"
             obs = yield None
-        return "timeout"
+        return "ok" if low < mana0 else "timeout"
     return proc
 
 
@@ -127,6 +130,8 @@ def mage_verbs(obs: Observation, f, memory: dict, threat) -> list:
             tgt = p.serial if s.kind in SELF_TARGET else threat.serial
             out.append(Affordance(f"cast:{key}", s.blurb + why, procedure=cast_proc(s, tgt)))
 
+    if memory.get("tick", 0) < memory.get("recover_until", 0):
+        return [Affordance("recover", "Catch your breath for a moment; the last spell still echoes.")]
     hp = f.hp_pct
     if hp < 0.5:
         cast("greater_heal", " You are below half.")
