@@ -268,7 +268,9 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
         t.join(timeout=5)
     per = {}
     for fx in (a, b):
+        import collections
         per[fx.persona.name] = {"bandages": sum(1 for _, pid, v in fx.agent.proc_log if pid == "bandage" and v == "ok"),
+                                "bandage_verdicts": dict(collections.Counter(v for _, pid, v in fx.agent.proc_log if pid == "bandage")),
                                 "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
     return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match, "seconds": round(time.time() - t0, 1),
             "duel_lines": ref.log, "per": per}

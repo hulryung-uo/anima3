@@ -72,3 +72,18 @@ def test_async_worker_result_is_consumed_and_stale_results_dropped():
     time.sleep(0.1)
     r2 = ag.tick()
     assert r2.used_model and r2.backend == "slow"
+
+
+def test_bandage_procedure_survives_critical_health():
+    from anima3.contract import BANDAGE_GRAPHIC
+    class PickBandage:
+        name = "bandager"
+
+        def choose(self, scene, question, options):
+            k = "bandage" if "bandage" in options else next(iter(options))
+            return Decision(k, {o: (1.0 if o == k else 0.0) for o in options}, 1.0, 1.0, self.name)
+
+    w = FakeBody(); w.player.hits = 12; w.add_pack_item(BANDAGE_GRAPHIC, 3); w.add_hostile(3, 0, aggressive=False)
+    ag = Agent(w, Persona(name="G", combat_disposition="pacifist"), PickBandage(), sync=True, pump_ms=0)
+    ag.run(4)
+    assert any(pid == "bandage" and v == "ok" for _, pid, v in ag.proc_log), ag.proc_log
