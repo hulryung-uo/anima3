@@ -12,6 +12,7 @@ import os
 import string
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 _SYSTEM = "You are a decision function for a character in Ultima Online. Reply with exactly one letter."
@@ -103,20 +104,41 @@ class QwenLogprob:
         return _finish({k: float(v) for k, v in zip(keys, vals)}, t0, self.name, prompt_tokens=len(ids))
 
 
+#: Where a TypeSafe API key is kept on this machine (gitignored; never commit it).
+_KEY_FILE = Path.home() / "dev" / "jev" / ".env"
+
+
+def _typesafe_key(explicit: str | None = None) -> str | None:
+    if explicit:
+        return explicit
+    if os.environ.get("TYPESAFE_API_KEY"):
+        return os.environ["TYPESAFE_API_KEY"]
+    if _KEY_FILE.exists():
+        for line in _KEY_FILE.read_text().splitlines():
+            if line.startswith("TYPESAFE_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return None
+
+
 class JeffChoice:
-    """TypeSafe System One `choice` question — cloud Jev or self-hosted jeff.
-    Measured to be weak on threshold/magnitude decisions; kept as a pluggable
-    backend so the comparison can be re-run as the model improves."""
+    """A TypeSafe System One `choice` question.
 
-    name = "jeff"
+    `cloud=True` is TypeSafe's own Jev (measured here: 14/14 on the in-character
+    probe and 3/3 on numeric state, where the open imitations scored 6/14 and 1/3);
+    `cloud=False` is the self-hosted `jeff`/GLiFormer at TYPESAFE_BASE_URL."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, cloud: bool = False) -> None:
         from typesafe_sdk import TypeSafeClient
+        self.name = "jev" if cloud else "jeff"
         kw = {}
-        if api_key or os.environ.get("TYPESAFE_API_KEY"):
-            kw["api_key"] = api_key or os.environ["TYPESAFE_API_KEY"]
-        if base_url or os.environ.get("TYPESAFE_BASE_URL"):
-            kw["base_url"] = base_url or os.environ["TYPESAFE_BASE_URL"]
+        key = _typesafe_key(api_key)
+        if key:
+            kw["api_key"] = key
+        url = None if cloud else (base_url or os.environ.get("TYPESAFE_BASE_URL"))
+        if url:
+            kw["base_url"] = url
+        if cloud and not key:
+            raise ValueError("cloud Jev needs a TYPESAFE_API_KEY (env or ~/dev/jev/.env)")
         self._client = TypeSafeClient(**kw)
 
     def choose(self, scene: str, question: str, options: dict[str, str]) -> Decision:
@@ -132,7 +154,9 @@ def build_client(kind: str) -> DecisionClient:
         return Scripted()
     if kind in ("qwen", "mlx", "local"):
         return QwenLogprob()
-    if kind in ("jeff", "jev", "typesafe"):
+    if kind in ("jev", "typesafe", "cloud"):
+        return JeffChoice(cloud=True)
+    if kind == "jeff":
         return JeffChoice()
     raise ValueError(f"unknown decision backend {kind!r}")
 

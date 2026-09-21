@@ -23,3 +23,20 @@ def test_gate_handles_missing_and_errored_decisions():
 def test_scripted_is_the_rule():
     d = Scripted().choose("s", "q", OPTS)
     assert d.choice == "flee" and d.confidence == 1.0
+
+
+def test_backend_names_split_cloud_jev_from_local_jeff(monkeypatch, tmp_path):
+    from anima3.decision import JeffChoice
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    monkeypatch.setenv("TYPESAFE_BASE_URL", "http://localhost:8000")
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    import typesafe_sdk
+    monkeypatch.setattr(typesafe_sdk, "TypeSafeClient", FakeClient)
+    assert JeffChoice(cloud=True).name == "jev" and "base_url" not in seen   # cloud ignores a local base_url
+    seen.clear()
+    assert JeffChoice().name == "jeff" and seen["base_url"] == "http://localhost:8000"
