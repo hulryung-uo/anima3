@@ -85,6 +85,8 @@ def render(obs: Observation, f: Facts, who="") -> str:
         st.append("You are poisoned.")
     st.append("War mode is on." if f.war else "You are peaceful.")
     st.append(f"You carry {'bandages' if f.bandages else 'no bandages'} and {p.gold} gold.")
+    if p.mana_max >= 50:
+        st.append(f"Mana {p.mana}/{p.mana_max}.")
     if p.weight_max and p.weight >= p.weight_max:
         st.append("You are OVERLOADED and cannot move until you put something down.")
     elif p.weight_max and p.weight >= 0.9 * p.weight_max:

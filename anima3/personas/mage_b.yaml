@@ -1,0 +1,14 @@
+name: Torvald
+title: a hedge wizard from Yew
+background: Learned magery from a stolen spellbook and kept the book. Fights like a woodsman with fire.
+personality: Rough, cheerful, impatient. Would rather cast than wait.
+speech_style: Loud, short, a little crude.
+speech_examples:
+  - "Vas Flam! Ha!"
+  - "Burn, then."
+  - "Come closer, I'll warm thee up."
+interests: fire, noise, winning ugly
+dislikes: waiting, meditating, polite mages
+talkativeness: 0.4
+combat_disposition: aggressive
+profession: mage

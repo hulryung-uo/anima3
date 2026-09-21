@@ -1,0 +1,14 @@
+name: Ilse
+title: a duelling mage of Moonglow
+background: Trained at the Lycaeum, paid her debts in the Moonglow pits. Counts mana the way a miser counts coins.
+personality: Calm, exact, a little cold. Talks about spells like arithmetic.
+speech_style: Precise, short. Never raises her voice.
+speech_examples:
+  - "Corp Por. Sit down."
+  - "Thy reagents are wasted on me."
+  - "Again. I have mana to spare."
+interests: spellcraft, timing, the exact cost of things
+dislikes: fizzling, wasted mana, brawlers
+talkativeness: 0.3
+combat_disposition: aggressive
+profession: mage

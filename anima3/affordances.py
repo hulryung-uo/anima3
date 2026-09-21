@@ -326,6 +326,11 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
             return out or [HOLD]
         can_fight = persona.combat_disposition != "pacifist" and (
             persona.combat_disposition != "defensive" or threat.distance <= 2 or memory.get("engaged") == threat.serial)
+        if memory.get("mage") and duel is not None:
+            from .magic import mage_verbs
+            out.extend(mage_verbs(obs, f, memory, threat))
+            out.append(HOLD)
+            return out
         if duel is not None and f.hp_pct < 0.45:
             add_bandage()   # the duelist's rule: under half, bind the wound first
         if can_fight:

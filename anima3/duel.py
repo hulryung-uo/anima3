@@ -38,8 +38,14 @@ RULE_SET_SKILLS = ("Swords", "Tactics", "Anatomy", "Healing", "MagicResist", "Pa
 TEMPLATES = {
     "5x": {"Swords": 100, "Tactics": 100, "Anatomy": 100, "Healing": 100, "MagicResist": 100},
     "7x": {"Swords": 100, "Tactics": 100, "Anatomy": 100, "Healing": 100, "MagicResist": 100, "Parry": 100, "Hiding": 100},
+    "5x-mage": {"Magery": 100, "EvalInt": 100, "Meditation": 100, "MagicResist": 100, "Wrestling": 100},
+    "7x-mage": {"Magery": 100, "EvalInt": 100, "Meditation": 100, "MagicResist": 100, "Wrestling": 100, "Anatomy": 100, "Healing": 100},
 }
 STATS = {"Str": 100, "Dex": 100, "Int": 25}
+MAGE_STATS = {"Str": 90, "Dex": 35, "Int": 100}
+#: Everything the shard's 5x/7x check sums (after the magic extension): zero what the template leaves out.
+ALL_RULE_SKILLS = ("Swords", "Tactics", "Anatomy", "Healing", "MagicResist", "Parry", "Hiding", "Wrestling",
+                   "Magery", "EvalInt", "Meditation", "Fencing", "Macing", "Archery")
 WEAPONS = {"katana": ("Katana", 0x13FF, 1), "broadsword": ("Broadsword", 0x0F5E, 1), "vikingsword": ("VikingSword", 0x13B9, 1),
            "halberd": ("Halberd", 0x143E, 2), "bardiche": ("Bardiche", 0x0F4D, 2), "fists": (None, None, 0)}
 ARMOR = {"leather": ["LeatherChest", "LeatherLegs", "LeatherArms", "LeatherGloves", "LeatherGorget", "LeatherCap"],
@@ -71,11 +77,27 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, r
         template.pop("Swords"); template["Wrestling"] = 100
     for sk, v in template.items():
         gm.command_on(f"[Set Skills.{sk}.Base {v}", fx.serial)
-    for sk in RULE_SET_SKILLS:      # the 5x/7x check sums all eight: zero what the template leaves out
+    for sk in ALL_RULE_SKILLS:      # the 5x/7x check sums every duelling skill: zero what the template leaves out
         if sk not in template:
             gm.command_on(f"[Set Skills.{sk}.Base 0", fx.serial)
-    for st, v in STATS.items():
+    mage = rules.endswith("-mage")
+    for st, v in (MAGE_STATS if mage else STATS).items():
         gm.command_on(f"[Set {st} {v}", fx.serial)
+    if mage:
+        from .magic import REAGENT_GRAPHICS, REAGENT_NAMES, SPELLBOOK_GRAPHIC
+        obs = fx.body.observe()
+        have = {i.graphic: i.amount for i in obs.own_pack()}
+        if SPELLBOOK_GRAPHIC not in have:
+            rep["spellbook"] = gm.command_on("[AddToPack Spellbook 18446744073709551615", fx.serial)   # every spell
+        for g in REAGENT_GRAPHICS:
+            if have.get(g, 0) < 60:
+                gm.command_on(f"[AddToPack {REAGENT_NAMES[g]} 150", fx.serial)
+        gm.command_on("[Set Hits 90", fx.serial); gm.command_on("[Set Mana 100", fx.serial)
+        # a mage duels unarmed: strip anything wielded
+        for i in obs.items:
+            if i.container == fx.serial and i.layer in (1, 2):
+                gm.command_on("[Delete", i.serial)
+        return rep
     obs = fx.body.observe()
     have = {i.graphic for i in obs.items if i.container in (fx.serial, obs.backpack_serial())}
     if wname and wgraphic not in have:
@@ -241,11 +263,12 @@ class ServerDuel:
 
 
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
-                     aims: tuple[str | None, str | None] = (None, None)) -> dict:
+                     aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server") -> dict:
     for fx, aim in zip((a, b), aims):
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms,
-                         log_path=f"{log_dir}/server-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
+                         log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
         fx.agent.memory["duel"] = True
+        fx.agent.memory["mage"] = mage
         fx.agent.aim = aim
     ref = ServerDuel(a, b, rounds, rules_token)
     stop = threading.Event()
@@ -269,8 +292,12 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
     per = {}
     for fx in (a, b):
         import collections
+        casts = collections.Counter((pid.split(":", 1)[1], v) for _, pid, v in fx.agent.proc_log if pid.startswith("cast:"))
         per[fx.persona.name] = {"bandages": sum(1 for _, pid, v in fx.agent.proc_log if pid == "bandage" and v == "ok"),
                                 "bandage_verdicts": dict(collections.Counter(v for _, pid, v in fx.agent.proc_log if pid == "bandage")),
+                                "casts_ok": dict(collections.Counter(k for (k, v) in casts.elements() if v == "ok")),
+                                "cast_fail": dict(collections.Counter(v for (k, v) in casts.elements() if v != "ok")),
+                                "meditations": sum(1 for _, pid, v in fx.agent.proc_log if pid == "meditate" and v == "ok"),
                                 "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
     return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match, "seconds": round(time.time() - t0, 1),
             "duel_lines": ref.log, "per": per}
@@ -280,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="anima3.duel")
     ap.add_argument("--a", required=True, help="account:persona:backend"); ap.add_argument("--b", required=True)
     ap.add_argument("--rules", choices=list(TEMPLATES), default="5x"); ap.add_argument("--weapon", choices=list(WEAPONS), default="katana")
+    ap.add_argument("--matches", type=int, default=1, help="server mode: play this many matches back to back")
+    ap.add_argument("--learn", action="store_true", help="server mode: after each match the slow layer rewrites fighter A's aim from the playbook")
     ap.add_argument("--armor", choices=list(ARMOR), default="leather")
     ap.add_argument("--rounds", type=int, default=3); ap.add_argument("--max-ticks", type=int, default=400)
     ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2593)
@@ -327,16 +356,47 @@ def main(argv: list[str] | None = None) -> int:
         gm.journal_after("[Hide", pumps=2)
         print(f"\n== {a.persona.name} ({a.backend}) vs {b.persona.name} ({b.backend}) — {args.rules}, {args.weapon}, {args.armor}, best of {args.rounds} ==", flush=True)
         if args.referee == "server":
-            gm.command_on(f"[Set X {SERVER_LOBBY[0].x} Y {SERVER_LOBBY[0].y} Z {SERVER_LOBBY[0].z}", a.serial)
-            gm.command_on(f"[Set X {SERVER_LOBBY[1].x} Y {SERVER_LOBBY[1].y} Z {SERVER_LOBBY[1].z}", b.serial)
-            res = run_server_match(a, b, clients, args.rounds, f"{args.rules}-{args.weapon}", args.pump_ms, args.log_dir,
-                                   max_ticks=args.max_ticks * args.rounds + 200, aims=(args.aim_a, args.aim_b))
-            print(f"server duel: state={res['state']} seconds={res['seconds']}")
-            for line in res["duel_lines"]:
-                if not re.match(r"^round \d+ of \d+ begins in [1-4]", line.lower()):
-                    print("  [Duel]", line)
-            print("  match:", res["match"] or "(no match line)")
-            print("  fighters:", res["per"])
+            mage = args.rules.endswith("-mage")
+            token = f"{args.rules.split('-')[0]}-{'fists-magic' if mage else args.weapon}"
+            aim_a = args.aim_a
+            learner = None
+            if args.learn:
+                from .speech import QwenSpeech
+                learner = QwenSpeech(clients.get("qwen") or build_client("qwen"), None)
+            playbook = f"{args.log_dir}/playbook.md"
+            tally = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
+            curve = []
+            for n in range(1, args.matches + 1):
+                gm.command_on(f"[Set X {SERVER_LOBBY[0].x} Y {SERVER_LOBBY[0].y} Z {SERVER_LOBBY[0].z}", a.serial)
+                gm.command_on(f"[Set X {SERVER_LOBBY[1].x} Y {SERVER_LOBBY[1].y} Z {SERVER_LOBBY[1].z}", b.serial)
+                if mage:
+                    for fx in (a, b):
+                        gm.command_on("[Set Mana 100", fx.serial)
+                res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
+                                       max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}")
+                wins = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
+                for line in res["rounds"]:
+                    m = re.match(r"Round \d+: (\w+) defeats", line)
+                    wins[m.group(1) if m else "draw"] += 1
+                for k in tally:
+                    tally[k] += wins[k]
+                curve.append((n, wins[a.persona.name], wins[b.persona.name], wins["draw"]))
+                pa, pb = res["per"][a.persona.name], res["per"][b.persona.name]
+                print(f"match {n:2d}/{args.matches}: {a.persona.name} {wins[a.persona.name]} - {wins[b.persona.name]} {b.persona.name} (draws {wins['draw']}) "
+                      f"[{res['seconds']:.0f}s] | {a.persona.name} casts={pa['casts_ok']} fail={pa['cast_fail']} med={pa['meditations']} "
+                      f"| {b.persona.name} casts={pb['casts_ok']} fail={pb['cast_fail']}", flush=True)
+                if res["state"] != "done":
+                    print("   (match did not finish: state", res["state"], ")", flush=True)
+                if learner is not None:
+                    from .learn import next_aim
+                    aim_a = next_aim(learner, a.persona, aim_a, res, wins, a.persona.name, b.persona.name, playbook, n)
+                    print(f"   aim -> {aim_a}", flush=True)
+            print(f"\nrounds: {a.persona.name} {tally[a.persona.name]} - {tally[b.persona.name]} {b.persona.name}, draws {tally['draw']}")
+            if len(curve) >= 4:
+                q = max(1, len(curve) // 4)
+                for i in range(0, len(curve), q):
+                    chunk = curve[i:i + q]
+                    print(f"  matches {chunk[0][0]}-{chunk[-1][0]}: {a.persona.name} won {sum(c[1] for c in chunk)} of {sum(c[1] + c[2] + c[3] for c in chunk)} rounds")
             return 0
         results = []
         clients.setdefault("scripted", build_client("scripted"))

@@ -152,8 +152,8 @@ class Agent:
             limit = self.proc_max_ticks * (8 if pid.startswith("goto:") else 1)  # a long walk is legitimate
             black = self.memory.get("target_blacklist", {})
             live = [m for m in f.hostiles if black.get(m.serial, -1) <= self.tick_no]   # the same threats the menu sees
-            danger = bool(live and live[0].distance <= 3) and not pid.startswith(("attack:", "drop:", "bandage"))  # chasing, unburdening and binding wounds are what danger calls for
-            critical = f.hp_pct < 0.35 and not pid.startswith("bandage")   # binding the wound IS the remedy for critical health
+            danger = bool(live and live[0].distance <= 3) and not pid.startswith(("attack:", "drop:", "bandage", "cast:", "meditate"))  # chasing, unburdening and binding wounds are what danger calls for
+            critical = f.hp_pct < 0.35 and not pid.startswith(("bandage", "cast:"))   # binding the wound IS the remedy for critical health
             interrupted = f.dead or danger or critical or self.tick_no - started > limit
             if not interrupted:
                 rep = TickReport(self.tick_no, f.hp_pct, f.dead, len(f.hostiles), obs.player.gold, chosen=pid, reason="procedure")
@@ -407,6 +407,8 @@ class Agent:
         elif aff.id.startswith("attack:"):
             self.memory["engaged"] = int(aff.id.split(":")[1])
             self.memory.setdefault("attacked", set()).add(int(aff.id.split(":")[1]))
+        elif aff.id == "cast:magic_reflection":
+            self.memory["reflect_at"] = self.tick_no
 
     def _log_proc(self, pid: str, obs, step) -> None:
         if not self.log_path:
