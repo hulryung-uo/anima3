@@ -374,11 +374,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--monitor-base", type=int, default=8811, help="anima-client spectator views: A on this port, B on the next (0 = off)")
     ap.add_argument("--open", action="store_true", help="open both spectator views in the browser")
     ap.add_argument("--referee", choices=["gm", "server"], default="gm", help="gm: this script referees; server: the shard's duel system does")
+    ap.add_argument("--no-aim", action="store_true", help="ignore --aim-a: fighter A runs with no standing aim (the raw decision head)")
+    ap.add_argument("--rule-vs-rule", action="store_true", help="both sides use the rule backend (a symmetry baseline)")
     ap.add_argument("--aim-a", default=None, help="a standing aim placed in fighter A's scene (the slow layer's steering, held fixed)")
     ap.add_argument("--aim-b", default=None, help="same for fighter B")
     args = ap.parse_args(argv)
 
     a, b = parse(args.a), parse(args.b)
+    if args.rule_vs_rule:
+        a.backend = b.backend = "scripted"
+    if args.no_aim:
+        args.aim_a = None
     clients = {k: build_client(k) for k in {a.backend, b.backend}}
     for c in clients.values():
         if hasattr(c, "warmup"):
