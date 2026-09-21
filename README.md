@@ -280,6 +280,27 @@ draws by running under 35%. jeff, half of whose picks fell back to the rule anyw
 round. Neither decision head adds tactical judgement here; the one thing the hand rule knows
 (bind your wounds under 45%) is exactly what decides a 5x duel.
 
+### The slow layer steering the fast head — measured in the ring
+
+`--aim-a "…"` places a standing aim in a fighter's scene, the way the village's reflection
+layer does every 150 ticks. With *"when your health falls below half, break away and bind your
+wounds first, then close in again"* in Kael's scene, the Qwen head's choice when both *attack*
+and *bandage* were on the menu went from **attack 115 / 115** to **bandage 9 / 9**. One sentence
+flipped the policy. It did not win at first, because the verb it steered toward was broken in
+two ways the ring exposed: a bandage applied next to a swinging opponent slipped 9 of 9 times
+(now the duel bandage breaks away three steps first), and a critical-health interrupt was
+cancelling the bandage that critical health calls for (now exempt).
+
+| Kael (Qwen) vs Rook (rule), 5x katana | W – L – D |
+|---|---|
+| no aim (three matches) | 2 – 6 – 3 |
+| aim + disengage-then-bind | **2 – 2 – 1** — round 3 won at 100% health after two completed bandages |
+
+Still a coin flip, on a small sample; but the model side went from losing to even by changing
+what the slow layer says and what the verb does — not the model. Bandage verdicts in that match
+(slipped 25, cornered 19, timeout 38, ok 2) say where the next tactic lives: getting clear of a
+pursuer before binding.
+
 What the ring taught: gear goes to the corpse on death in Felucca (the shard's duel service now
 keeps it); re-applying a bandage every tick cancels the previous one, so bandaging is a
 procedure that waits for "You finish applying the bandages"; a referee that de-duplicates
