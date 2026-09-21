@@ -33,6 +33,8 @@ ARENA = (Pos(2602, 488, 20), Pos(2607, 488, 20))     # GM-refereed marks on the 
 SERVER_MARKS = (Pos(2599, 491, 20), Pos(2605, 491, 20))
 SERVER_LOBBY = (Pos(2599, 496, 20), Pos(2605, 496, 20))
 SERVER_SEAT = Pos(2602, 495, 20)
+#: Filled from the shard when it gains more rings: {index: (mark A, mark B, lobby A, lobby B)}.
+ARENAS: dict[int, tuple[Pos, Pos, Pos, Pos]] = {1: (SERVER_MARKS[0], SERVER_MARKS[1], SERVER_LOBBY[0], SERVER_LOBBY[1])}
 RULE_SET_SKILLS = ("Swords", "Tactics", "Anatomy", "Healing", "MagicResist", "Parry", "Hiding", "Wrestling")
 #: Reagents each mage starts every match with (≈20 stones total; a 5-round match spends ~40).
 REAGENT_TARGET = 120
@@ -353,11 +355,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--a", required=True, help="account:persona:backend"); ap.add_argument("--b", required=True)
     ap.add_argument("--rules", choices=list(TEMPLATES), default="5x"); ap.add_argument("--weapon", choices=list(WEAPONS), default="katana")
     ap.add_argument("--matches", type=int, default=1, help="server mode: play this many matches back to back")
+    ap.add_argument("--arena", type=int, default=0, help="server mode: ring to fight in (0 = let the shard choose a free one)")
     ap.add_argument("--learn", action="store_true", help="server mode: after each match the slow layer rewrites fighter A's aim from the playbook")
     ap.add_argument("--armor", choices=list(ARMOR), default="leather")
     ap.add_argument("--rounds", type=int, default=3); ap.add_argument("--max-ticks", type=int, default=400)
     ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2593)
-    ap.add_argument("--gm-user", default="anima3"); ap.add_argument("--gm-pass", default="anima3")
+    ap.add_argument("--gm-user", default="anima3"); ap.add_argument("--gm-pass", default=None,
+                    help="defaults to the same string as --gm-user")
     ap.add_argument("--pump-ms", type=int, default=250); ap.add_argument("--speech", action="store_true")
     ap.add_argument("--log-dir", default=".logs/duel")
     ap.add_argument("--monitor-base", type=int, default=8811, help="anima-client spectator views: A on this port, B on the next (0 = off)")
@@ -391,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.open:
                 import subprocess
                 subprocess.Popen(["open", fx.body.monitor_url or f"http://127.0.0.1:{port}/"])
-    gm_body = BridgeBody.spawn(args.host, args.port, args.gm_user, args.gm_pass)
+    gm_body = BridgeBody.spawn(args.host, args.port, args.gm_user, args.gm_pass or args.gm_user)
     gm = Gm(gm_body)
     try:
         gm.go(ARENA[0].x + 2, ARENA[0].y + 3, ARENA[0].z)
@@ -403,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.referee == "server":
             mage = args.rules.endswith("-mage")
             token = f"{args.rules.split('-')[0]}-{'fists-magic' if mage else args.weapon}"
+            marks = ARENAS.get(args.arena, ARENAS[1])
+            lobby_a, lobby_b = marks[2], marks[3]
             aim_a = args.aim_a
             learner = None
             if args.learn:
@@ -414,8 +420,8 @@ def main(argv: list[str] | None = None) -> int:
             for n in range(1, args.matches + 1):
                 if n > 1:
                     time.sleep(4)        # let the ring clear before the next challenge
-                gm.command_on(f"[Set X {SERVER_LOBBY[0].x} Y {SERVER_LOBBY[0].y} Z {SERVER_LOBBY[0].z}", a.serial)
-                gm.command_on(f"[Set X {SERVER_LOBBY[1].x} Y {SERVER_LOBBY[1].y} Z {SERVER_LOBBY[1].z}", b.serial)
+                gm.command_on(f"[Set X {lobby_a.x} Y {lobby_a.y} Z {lobby_a.z}", a.serial)
+                gm.command_on(f"[Set X {lobby_b.x} Y {lobby_b.y} Z {lobby_b.z}", b.serial)
                 if mage:
                     for fx in (a, b):
                         gm.command_on("[Set Mana 100", fx.serial)
