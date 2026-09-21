@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 
 from .agent import Agent
-from .body import BridgeBody
+from .body import BridgeBody, ResilientBody
 from .contract import Pos
 from .decision import build_client
 from .gm import Gm
@@ -418,7 +418,8 @@ def main(argv: list[str] | None = None) -> int:
     os.makedirs(args.log_dir, exist_ok=True)
     for i, fx in enumerate((a, b)):
         port = (args.monitor_base + i) if args.monitor_base else None
-        fx.body = BridgeBody.spawn(args.host, args.port, fx.account, fx.account, monitor_port=port)
+        fx.body = ResilientBody({"host": args.host, "port": args.port, "user": fx.account,
+                                 "password": fx.account, "monitor_port": port})
         fx.serial = int(fx.body.ready["player"]["serial"])
         for _ in range(3):
             fx.body.pump(args.pump_ms)
@@ -428,7 +429,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.open:
                 import subprocess
                 subprocess.Popen(["open", fx.body.monitor_url or f"http://127.0.0.1:{port}/"])
-    gm_body = BridgeBody.spawn(args.host, args.port, args.gm_user, args.gm_pass or args.gm_user)
+    gm_body = ResilientBody({"host": args.host, "port": args.port, "user": args.gm_user,
+                             "password": args.gm_pass or args.gm_user})
     gm = Gm(gm_body)
     try:
         gm.go(ARENA[0].x + 2, ARENA[0].y + 3, ARENA[0].z)
@@ -484,7 +486,9 @@ def main(argv: list[str] | None = None) -> int:
                     from .learn import next_aim
                     aim_a = next_aim(learner, a.persona, aim_a, res, wins, a.persona.name, b.persona.name, playbook, n)
                     print(f"   aim -> {aim_a}", flush=True)
-            print(f"\nrounds: {a.persona.name} {tally[a.persona.name]} - {tally[b.persona.name]} {b.persona.name}, draws {tally['draw']}")
+            recon = sum(getattr(fx.body, "reconnects", 0) for fx in (a, b)) + getattr(gm_body, "reconnects", 0)
+            print(f"\nrounds: {a.persona.name} {tally[a.persona.name]} - {tally[b.persona.name]} {b.persona.name}, draws {tally['draw']}"
+                  + (f" (bridges reconnected {recon}x)" if recon else ""))
             if len(curve) >= 4:
                 q = max(1, len(curve) // 4)
                 for i in range(0, len(curve), q):

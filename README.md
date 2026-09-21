@@ -306,6 +306,78 @@ keeps it); re-applying a bandage every tick cancels the previous one, so bandagi
 procedure that waits for "You finish applying the bandages"; a referee that de-duplicates
 journal lines by text drops the second `FIGHT!`.
 
+## Mage duels, and what a hundred rounds cost to measure
+
+`--rules 5x-mage` fights the classic 5x caster template (Magery / EvalInt / Meditation /
+MagicResist / Wrestling at 100, stats 90/35/100, no weapon, no armour) with a fourteen-spell
+menu: Energy Bolt, Explosion, Lightning, Fireball, Harm, Magic Arrow; Greater Heal, Heal,
+Cure; Poison, Paralyze; Magic Reflection, Reactive Armor; plus Meditate and a wrestle when
+cornered. Mana, reagents and the post-cast recovery are checked in code (`magic.py`); the
+model only picks which incantation comes next, and the cast procedure reads the server's own
+verdict — fizzle, insufficient mana, more reagents needed, no line of sight.
+
+```bash
+uv run python -m anima3.duel --referee server --gm-user anima3gm5 --arena 2 \
+    --a anima3m1:mage_a:jev --b anima3m2:mage_b:scripted \
+    --rules 5x-mage --armor none --rounds 5 --matches 10 [--learn]
+```
+
+### Backends, measured on the same probes
+
+`--backend` selects the decision head: `scripted` (the hand rule), `qwen` (local logprob),
+`jeff` (self-hosted GLiFormer at `TYPESAFE_BASE_URL`), **`jev` (TypeSafe's own Jev)**. The key
+comes from the environment or a gitignored `~/dev/jev/.env` — never from the repo. On the
+three probes in [jev-testbed](https://github.com/hulryung/jev-testbed), cloud Jev scored
+**14/14** on "is this line out of character" and **3/3 on numeric state**, where the open
+imitations scored 6/14 and 1/3 — so the magnitude-blindness measured earlier belongs to the
+imitations, not to Jev. Cloud Jev costs about $0.017 per thousand calls at ~350 ms median;
+local Qwen is free at ~150 ms and reads magnitudes too, but is weaker on register.
+
+### The experiment, and the two things that broke it
+
+Four arms run at once, each bound to its own ring with the shard's `arena:N` token and its own
+staff account: `jev`, `jev --learn`, `scripted --rule-vs-rule` (a symmetry baseline), `qwen`.
+Reagents are topped to 120 of each before every match so resources cannot drift.
+
+| arm | rounds | note |
+|---|---|---|
+| Jev + learned aims | **22 – 20** (52.4%) | last two matches 6 of 6 |
+| raw Qwen head, no aim | 21 – 16 (56.8%) | earlier run; p = 0.48 against the baseline |
+| rule vs rule | 18 – 19 (48.6%) | the setup is symmetric, as it should be |
+| learned vs fixed aim (melee) | 47.7% vs 31.6% | p = 0.14 — suggestive, not proven |
+
+Nothing here is significant yet. Two failures are why, and both are worth remembering:
+
+- **The Mac was asleep, not the brain.** Matches that showed "Round 4: Draw: time limit (1036
+  seconds)" with attacks 0/0 looked like stalled decision-making; `pmset log` showed a Thermal
+  Emergency Sleep and two maintenance sleeps covering exactly those windows. Four model
+  processes on one GPU pushed the box over. Hold `caffeinate -dimsu` for the whole run, and
+  read a 1000-second round with no attacks as a sleep gap, never as a slow model.
+- **Bridges die and used to take the run with them.** A shard restart, a sleep, or a broken
+  pipe ended an arm mid-command. `ResilientBody` now respawns the bridge and re-issues the
+  call; runs report how many times they reconnected.
+
+Smaller ones, each paid for with a run: four arms all named their fighters Ilse/Torvald and
+`[Challenge` resolves by name, so three arms queued onto one fighter; logging into an account
+an arm is using disposes that arm's session (UO's character-select does it); a referee that
+tracks journal position by list length goes deaf once the log is trimmed; and an idle pair
+waiting in a lobby hears whatever match takes that ring, so a referee must ignore result lines
+that are not about its own two fighters.
+
+### Rings
+
+Fourteen arenas: twelve standard 9x5 rings, one **large 21x13** (kiting and meditation become
+viable) and one **corridor 25x3** (no kiting at all) — the shape changes mage tactics
+materially, which makes them an experiment axis rather than decoration. `ARENAS` in `duel.py`
+holds marks, exits and a spectator seat for each; `--arena N` binds an arm to one.
+
+Watch any of them with anima-client's own renderer, one spectator per ring:
+
+```bash
+( cd ../anima-client && target/release/play 127.0.0.1 2593 anima3spec anima3spec 8090 web ~/dev/uo/uo-resource )
+# then, as staff: [Set X <seat.x> Y <seat.y> Z <seat.z>  and  [Set Blessed true  on the spectator
+```
+
 ## Layout
 
 | File | Role |
@@ -321,7 +393,9 @@ journal lines by text drops the second `FIGHT!`.
 | `progression.py` | skills, profession GM sets, curriculum ordering |
 | `triage.py` · `speech.py` | Laya speech triage · generated replies, aims, chronicle |
 | `village.py` | several characters, one process, GM staging/resurrection |
-| `duel.py` | refereed PvP: 5x/7x templates, weapon/armour rules, per-side backends; server or GM referee |
+| `duel.py` | refereed PvP: 5x/7x templates, weapon/armour/magic rules, per-side backends, fourteen rings |
+| `magic.py` | the spell table, cast procedure and the mage's closed menu |
+| `learn.py` | the between-match playbook: the slow layer rewrites the standing tactic |
 | `calibrate.py` | outcome-labelled temperature scaling over the decision logs |
 
 ## Not yet

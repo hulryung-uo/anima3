@@ -109,3 +109,31 @@ def test_journal_sequence_survives_trimming():
     assert ag.journal_seq == 2100 and len(ag.journal_log) == 2000
     first_held = ag.journal_seq - len(ag.journal_log)
     assert first_held == 100 and ag.journal_log[0][2] == "line 100"
+
+
+def test_resilient_body_reconnects_after_a_broken_pipe(monkeypatch):
+    from anima3 import body as body_mod
+    calls = {"spawn": 0, "act": 0}
+
+    class FlakyBridge:
+        monitor_url = None
+
+        def __init__(self):
+            self.ready = {"player": {"serial": 1}}
+
+        def act(self, action):
+            calls["act"] += 1
+            if calls["act"] == 1:
+                raise body_mod.BodyError("io error: Broken pipe")
+
+        def close(self):
+            pass
+
+    def fake_spawn(**kw):
+        calls["spawn"] += 1
+        return FlakyBridge()
+
+    monkeypatch.setattr(body_mod.BridgeBody, "spawn", staticmethod(fake_spawn))
+    rb = body_mod.ResilientBody({"host": "h", "port": 1, "user": "u", "password": "p"}, backoff_s=0)
+    rb.act({"type": "Say", "text": "x"})
+    assert calls["spawn"] == 2 and rb.reconnects == 1

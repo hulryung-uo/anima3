@@ -137,6 +137,69 @@ class BridgeBody:
             self._proc.kill()
 
 
+class ResilientBody:
+    """A `BridgeBody` that reconnects when its subprocess dies.
+
+    A long unattended run loses bridges: the machine sleeps, the shard restarts, a
+    pipe breaks. Every such failure used to end the run with `io error: Broken pipe`
+    mid-command. This retries the spawn a few times and re-issues the call; the
+    character reappears where the server left it, which is all the brain needs.
+    """
+
+    def __init__(self, spawn_args: dict, max_retries: int = 5, backoff_s: float = 3.0) -> None:
+        self._args = spawn_args
+        self._retries = max_retries
+        self._backoff = backoff_s
+        self._body = BridgeBody.spawn(**spawn_args)
+        self.reconnects = 0
+
+    @property
+    def ready(self) -> dict[str, Any]:
+        return self._body.ready
+
+    @property
+    def monitor_url(self) -> str | None:
+        return self._body.monitor_url
+
+    def _reconnect(self) -> None:
+        import time as _t
+        for attempt in range(self._retries):
+            _t.sleep(self._backoff * (attempt + 1))
+            try:
+                with contextlib.suppress(Exception):
+                    self._body.close()
+                self._body = BridgeBody.spawn(**self._args)
+                self.reconnects += 1
+                sys.stderr.write(f"[body] reconnected as {self._args.get('user')} (#{self.reconnects})\n")
+                return
+            except Exception as e:  # noqa: BLE001 — keep trying while the shard settles
+                sys.stderr.write(f"[body] reconnect {attempt + 1}/{self._retries} failed: {e}\n")
+        raise BodyError(f"could not reconnect as {self._args.get('user')} after {self._retries} tries")
+
+    def _call(self, name: str, *a, **kw):
+        try:
+            return getattr(self._body, name)(*a, **kw)
+        except BodyError:
+            self._reconnect()
+            return getattr(self._body, name)(*a, **kw)
+
+    def observe(self) -> Observation:
+        return self._call("observe")
+
+    def observe_raw(self) -> dict[str, Any]:
+        return self._call("observe_raw")
+
+    def act(self, action: dict) -> None:
+        self._call("act", action)
+
+    def pump(self, ms: int) -> int:
+        return self._call("pump", ms)
+
+    def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self._body.close()
+
+
 # --- Offline world ------------------------------------------------------------
 @dataclass
 class FakeMobile:
