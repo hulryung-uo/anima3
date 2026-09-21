@@ -240,11 +240,13 @@ class ServerDuel:
         self.state = "challenged"
 
 
-def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int) -> dict:
-    for fx in (a, b):
+def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
+                     aims: tuple[str | None, str | None] = (None, None)) -> dict:
+    for fx, aim in zip((a, b), aims):
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms,
                          log_path=f"{log_dir}/server-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
         fx.agent.memory["duel"] = True
+        fx.agent.aim = aim
     ref = ServerDuel(a, b, rounds, rules_token)
     stop = threading.Event()
 
@@ -285,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--monitor-base", type=int, default=8811, help="anima-client spectator views: A on this port, B on the next (0 = off)")
     ap.add_argument("--open", action="store_true", help="open both spectator views in the browser")
     ap.add_argument("--referee", choices=["gm", "server"], default="gm", help="gm: this script referees; server: the shard's duel system does")
+    ap.add_argument("--aim-a", default=None, help="a standing aim placed in fighter A's scene (the slow layer's steering, held fixed)")
+    ap.add_argument("--aim-b", default=None, help="same for fighter B")
     args = ap.parse_args(argv)
 
     a, b = parse(args.a), parse(args.b)
@@ -324,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             gm.command_on(f"[Set X {SERVER_LOBBY[0].x} Y {SERVER_LOBBY[0].y} Z {SERVER_LOBBY[0].z}", a.serial)
             gm.command_on(f"[Set X {SERVER_LOBBY[1].x} Y {SERVER_LOBBY[1].y} Z {SERVER_LOBBY[1].z}", b.serial)
             res = run_server_match(a, b, clients, args.rounds, f"{args.rules}-{args.weapon}", args.pump_ms, args.log_dir,
-                                   max_ticks=args.max_ticks * args.rounds + 200)
+                                   max_ticks=args.max_ticks * args.rounds + 200, aims=(args.aim_a, args.aim_b))
             print(f"server duel: state={res['state']} seconds={res['seconds']}")
             for line in res["duel_lines"]:
                 if not re.match(r"^round \d+ of \d+ begins in [1-4]", line.lower()):
