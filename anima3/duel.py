@@ -33,8 +33,15 @@ ARENA = (Pos(2602, 488, 20), Pos(2607, 488, 20))     # GM-refereed marks on the 
 SERVER_MARKS = (Pos(2599, 491, 20), Pos(2605, 491, 20))
 SERVER_LOBBY = (Pos(2599, 496, 20), Pos(2605, 496, 20))
 SERVER_SEAT = Pos(2602, 495, 20)
-#: Filled from the shard when it gains more rings: {index: (mark A, mark B, lobby A, lobby B)}.
-ARENAS: dict[int, tuple[Pos, Pos, Pos, Pos]] = {1: (SERVER_MARKS[0], SERVER_MARKS[1], SERVER_LOBBY[0], SERVER_LOBBY[1])}
+#: The shard's four rings: {index: (mark A, mark B, exit A, exit B, spectator seat)}. A match
+#: takes the lowest-numbered free ring, so an arm's `--arena` only decides where it waits and
+#: where its spectator sits; the Start line reports the ring actually used.
+ARENAS: dict[int, tuple[Pos, Pos, Pos, Pos, Pos]] = {
+    1: (Pos(2599, 491, 20), Pos(2605, 491, 20), Pos(2599, 496, 20), Pos(2605, 496, 20), Pos(2602, 495, 20)),
+    2: (Pos(5177, 320, 15), Pos(5183, 320, 15), Pos(5177, 325, 15), Pos(5183, 325, 15), Pos(5180, 326, 15)),
+    3: (Pos(5257, 320, 15), Pos(5263, 320, 15), Pos(5257, 325, 15), Pos(5263, 325, 15), Pos(5260, 326, 15)),
+    4: (Pos(5337, 320, 15), Pos(5343, 320, 15), Pos(5337, 325, 15), Pos(5343, 325, 15), Pos(5340, 326, 15)),
+}
 RULE_SET_SKILLS = ("Swords", "Tactics", "Anatomy", "Healing", "MagicResist", "Parry", "Hiding", "Wrestling")
 #: Reagents each mage starts every match with (≈20 stones total; a 5-round match spends ~40).
 REAGENT_TARGET = 120
@@ -283,7 +290,7 @@ class ServerDuel:
                 for fx in (self.a, self.b):
                     fx.agent.memory.pop("duel_opponent", None)
                 self.state = "done"
-            elif low.startswith(("the arena is busy", "no pending")) and self.tries < 4:
+            elif low.startswith(("all arenas are busy", "the arena is busy", "no pending", "is already in a match")) and self.tries < 40:
                 self.state = "retry"          # the ring has not finished clearing: challenge again shortly
                 self.error = line
             elif low.startswith(("cannot start", "unknown rule", "rounds must", "staff only")):
@@ -326,7 +333,7 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
     while ref.state != "done" and any(t.is_alive() for t in threads) and time.time() - t0 < max_ticks * pump_ms / 1000:
         time.sleep(0.3)
         ref.step()
-        if ref.state == "retry" and time.time() - last_try > 4:
+        if ref.state == "retry" and time.time() - last_try > 8:
             last_try = time.time()
             ref.challenge()
         elif ref.state == "challenged" and time.time() - last_try > 20 and ref.tries < 4:
@@ -407,8 +414,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.referee == "server":
             mage = args.rules.endswith("-mage")
             token = f"{args.rules.split('-')[0]}-{'fists-magic' if mage else args.weapon}"
-            marks = ARENAS.get(args.arena, ARENAS[1])
-            lobby_a, lobby_b = marks[2], marks[3]
+            ring = ARENAS.get(args.arena, ARENAS[1])
+            lobby_a, lobby_b = ring[2], ring[3]
             aim_a = args.aim_a
             learner = None
             if args.learn:
