@@ -21,6 +21,7 @@ from typing import Any
 from .affordances import Affordance, enumerate_affordances
 from .body import Body
 from .contract import all_names, click
+from .contract import use as click_use
 from .decision import Admitted, Decision, DecisionClient, gate
 from .persona import Persona
 from .progression import curriculum_key, gm_count, progress_scene, train_verbs, training_delta
@@ -125,6 +126,12 @@ class Agent:
         if self.tick_no % 20 == 1:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
+        if self.tick_no == 1:
+            # A character that has never opened its own backpack is not told what is in it:
+            # `own_pack()` reads empty and every pack-dependent verb disappears (live-caught).
+            bp = obs.backpack_serial()
+            if bp is not None:
+                self.body.act(click_use(bp))
         for j in obs.new_journal:
             if j.text:
                 self.journal_log.append((self.tick_no, j.serial, j.text))

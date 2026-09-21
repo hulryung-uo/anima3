@@ -87,3 +87,10 @@ def test_bandage_procedure_survives_critical_health():
     ag = Agent(w, Persona(name="G", combat_disposition="pacifist"), PickBandage(), sync=True, pump_ms=0)
     ag.run(4)
     assert any(pid == "bandage" and v == "ok" for _, pid, v in ag.proc_log), ag.proc_log
+
+
+def test_agent_opens_its_backpack_on_the_first_tick():
+    w = FakeBody()
+    ag = Agent(w, Persona(name="G"), Scripted(), pump_ms=0)
+    ag.tick()
+    assert any(x["type"] == "Use" and x["serial"] == 0x4000_0001 for x in w.log), w.log

@@ -85,7 +85,7 @@ def test_equip_procedure_lifts_then_equips_and_confirms():
     w = FakeBody(); w.add_pack_item(0x13FF)
     ag = Agent(w, Persona(name="W", talkativeness=0), Scripted(), pump_ms=0)
     ag.run(4)
-    sent = [a for a in w.log if a["type"] != "AllNames"]
+    sent = [a for a in w.log if a["type"] not in ("AllNames", "Use")]
     assert [a["type"] for a in sent[:2]] == ["PickUp", "Equip"] and sent[1]["layer"] == 1
     assert any(v == "ok" for _, pid, v in ag.proc_log if pid.startswith("equip:"))
     assert not any(i.graphic == 0x13FF for i in w.pack) and w.worn

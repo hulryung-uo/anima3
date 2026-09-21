@@ -84,14 +84,26 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, r
     for st, v in (MAGE_STATS if mage else STATS).items():
         gm.command_on(f"[Set {st} {v}", fx.serial)
     if mage:
+        from .contract import use
         from .magic import REAGENT_GRAPHICS, REAGENT_NAMES, SPELLBOOK_GRAPHIC
         obs = fx.body.observe()
-        have = {i.graphic: i.amount for i in obs.own_pack()}
+        bp = obs.backpack_serial()
+        if bp is not None and not obs.own_pack():   # the pack must be opened before it can be counted
+            fx.body.act(use(bp))
+            for _ in range(4):
+                fx.body.pump(250)
+                obs = fx.body.observe()
+                if obs.own_pack():
+                    break
+        have: dict[int, int] = {}
+        for i in obs.own_pack():
+            have[i.graphic] = have.get(i.graphic, 0) + i.amount
         if SPELLBOOK_GRAPHIC not in have:
             rep["spellbook"] = gm.command_on("[AddToPack Spellbook 18446744073709551615", fx.serial)   # every spell
         for g in REAGENT_GRAPHICS:
             if have.get(g, 0) < 60:
-                gm.command_on(f"[AddToPack {REAGENT_NAMES[g]} 150", fx.serial)
+                gm.command_on(f"[AddToPack {REAGENT_NAMES[g]} 120", fx.serial)
+        rep["reagents"] = min(have.get(g, 0) for g in REAGENT_GRAPHICS) if have else 0
         gm.command_on("[Set Hits 90", fx.serial); gm.command_on("[Set Mana 100", fx.serial)
         # a mage duels unarmed: strip anything wielded
         for i in obs.items:
@@ -275,8 +287,13 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
     stop = threading.Event()
 
     def loop(fx: Fighter) -> None:
-        while not stop.is_set() and fx.agent.tick_no < max_ticks:
-            fx.agent.tick()
+        try:
+            while not stop.is_set() and fx.agent.tick_no < max_ticks:
+                fx.agent.tick()
+        except Exception:  # noqa: BLE001 — a fighter thread must never die silently
+            import traceback
+            print(f"[{fx.persona.name}] fighter thread crashed:\n{traceback.format_exc()}", flush=True)
+            stop.set()
 
     threads = [threading.Thread(target=loop, args=(fx,), daemon=True, name=fx.persona.name) for fx in (a, b)]
     for t in threads:
