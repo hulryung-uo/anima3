@@ -270,8 +270,14 @@ class ServerDuel:
         return out
 
     def step(self) -> None:
+        mine = (self.a.persona.name.lower(), self.b.persona.name.lower())
         for line in self.lines():
             low = line.lower()
+            # Four rings run at once and a fighter waiting in a lobby hears that ring's
+            # announcements, which may belong to another arm: only our own names count.
+            if any(w in low for w in ("defeats", "start:", "match:", "score:", "has challenged", "accepted", "detail:")) \
+                    and not all(n in low for n in mine):
+                continue
             self.log.append(line)
             if "has challenged" in low and self.state == "challenged":
                 self.b.body.act({"type": "Say", "text": "[Accept"})
@@ -450,7 +456,8 @@ def main(argv: list[str] | None = None) -> int:
                 wins = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
                 for line in res["rounds"]:
                     m = re.match(r"Round \d+: (\w+) defeats", line)
-                    wins[m.group(1) if m else "draw"] += 1
+                    key = m.group(1) if m else "draw"
+                    wins[key if key in wins else "draw"] += 1
                 for k in tally:
                     tally[k] += wins[k]
                 curve.append((n, wins[a.persona.name], wins[b.persona.name], wins["draw"]))
