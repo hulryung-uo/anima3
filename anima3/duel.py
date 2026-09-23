@@ -248,8 +248,10 @@ class ServerDuel:
     """Drive a match through the shard's own duel commands and read its `[Duel]` journal
     lines. The brain only speaks: `[Challenge <name> <rounds> <rules>`, `[Accept`."""
 
-    def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str, arena: int = 0) -> None:
+    def __init__(self, a: Fighter, b: Fighter, rounds: int, rules_token: str, arena: int = 0, a_challenges: bool = True) -> None:
         self.a, self.b, self.rounds, self.rules, self.arena = a, b, rounds, rules_token, arena
+        # Who speaks the challenge also decides the starting marks; alternating it cancels any side advantage.
+        self.challenger, self.accepter = (a, b) if a_challenges else (b, a)
         self.pos: dict[int, int] = {a.serial: 0, b.serial: 0}   # lines consumed per fighter, by SEQUENCE
         self.lost: int = 0                                       # lines that scrolled out before we read them
         self.recent: list[str] = []                              # both fighters receive every line: skip the twin
@@ -290,7 +292,7 @@ class ServerDuel:
                 continue
             self.log.append(line)
             if "has challenged" in low and self.state == "challenged":
-                self.b.body.act({"type": "Say", "text": "[Accept"})
+                self.accepter.body.act({"type": "Say", "text": "[Accept"})
                 self.state = "accepted"
             elif low.startswith("fight"):
                 for fx, other in ((self.a, self.b), (self.b, self.a)):
@@ -316,13 +318,13 @@ class ServerDuel:
     def challenge(self) -> None:
         self.tries += 1
         ring = f" arena:{self.arena}" if self.arena else ""
-        self.a.body.act({"type": "Say", "text": f"[Challenge {self.b.persona.name} {self.rounds} {self.rules}{ring}"})
+        self.challenger.body.act({"type": "Say", "text": f"[Challenge {self.accepter.persona.name} {self.rounds} {self.rules}{ring}"})
         self.state = "challenged"
 
 
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
                      aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
-                     start_timeout_s: float = 120.0, sync_a: bool = False) -> dict:
+                     start_timeout_s: float = 120.0, sync_a: bool = False, a_challenges: bool = True) -> dict:
     for fx, aim in zip((a, b), aims):
         sync = True if (sync_a and fx is a) else None      # None: the agent's default (async for a model)
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms, sync=sync,
@@ -330,7 +332,7 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
         fx.agent.memory["duel"] = True
         fx.agent.memory["mage"] = mage
         fx.agent.aim = aim
-    ref = ServerDuel(a, b, rounds, rules_token, arena)
+    ref = ServerDuel(a, b, rounds, rules_token, arena, a_challenges)
     stop = threading.Event()
 
     def loop(fx: Fighter) -> None:
@@ -398,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--referee", choices=["gm", "server"], default="gm", help="gm: this script referees; server: the shard's duel system does")
     ap.add_argument("--suffix", default="", help="appended to both fighters' names — every arm needs unique names because [Challenge resolves by name")
     ap.add_argument("--no-aim", action="store_true", help="ignore --aim-a: fighter A runs with no standing aim (the raw decision head)")
+    ap.add_argument("--alternate", action="store_true", help="server mode: B challenges in even matches, so neither fighter keeps the challenger's side")
     ap.add_argument("--sync-a", action="store_true", help="fighter A waits for its model at every decision instead of letting the rule act while it thinks")
     ap.add_argument("--rule-vs-rule", action="store_true", help="both sides use the rule backend (a symmetry baseline)")
     ap.add_argument("--aim-a", default=None, help="a standing aim placed in fighter A's scene (the slow layer's steering, held fixed)")
@@ -473,7 +476,8 @@ def main(argv: list[str] | None = None) -> int:
                 for attempt in range(3):
                     res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
                                            max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
-                                           arena=args.arena, sync_a=args.sync_a)
+                                           arena=args.arena, sync_a=args.sync_a,
+                                           a_challenges=not (args.alternate and n % 2 == 0))
                     if res["state"] != "no-start":
                         break
                     print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
@@ -488,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
                     tally[k] += wins[k]
                 curve.append((n, wins[a.persona.name], wins[b.persona.name], wins["draw"]))
                 with open(f"{args.log_dir}/matches.jsonl", "a") as fh:
-                    fh.write(json.dumps({"match": n, "a": a.persona.name, "a_backend": a.backend, "b": b.persona.name, "b_backend": b.backend,
+                    fh.write(json.dumps({"match": n, "a_challenged": not (args.alternate and n % 2 == 0), "a": a.persona.name, "a_backend": a.backend, "b": b.persona.name, "b_backend": b.backend,
                                          "aim_a": aim_a, "state": res["state"], "seconds": res["seconds"], "rounds": res["rounds"],
                                          "wins_a": wins[a.persona.name], "wins_b": wins[b.persona.name], "draws": wins["draw"],
                                          "per": res["per"]}) + "\n")
