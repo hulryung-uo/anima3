@@ -193,3 +193,16 @@ def test_bandage_is_a_procedure_that_waits_for_the_wrap_to_finish():
     ag.run(3)
     sent = [x for x in w.log if x["type"] == "BandageTarget"]
     assert len(sent) == 1 and any(v == "ok" for _, pid, v in ag.proc_log if pid == "bandage")
+
+
+def test_critically_hurt_duel_mage_heals_rather_than_only_fleeing():
+    from anima3.magic import REAGENT_GRAPHICS
+    w = FakeBody(); w.player.hits = 10; w.player.mana = w.player.mana_max = 100
+    opp = w.add_hostile(4, 0)
+    for g in REAGENT_GRAPHICS:
+        w.add_pack_item(g, 20)
+    got = ids(w, memory={"duel": True, "mage": True, "duel_opponent": opp.serial})
+    assert got[0] == "cast:greater_heal" and "flee" not in got
+    w.player.mana = 0                      # no mana for a heal: now running is the answer
+    got = ids(w, memory={"duel": True, "mage": True, "duel_opponent": opp.serial})
+    assert "flee" in got and "cast:greater_heal" not in got

@@ -230,7 +230,11 @@ class Agent:
 
         decision: Decision | None = None
         admitted: Admitted | None = None
-        if self.sync:
+        if len(options) == 1:
+            # Nothing to decide. Asking anyway keeps the model busy, and in async mode the next
+            # real choice then falls to the rule while that useless call is still pending.
+            admitted = Admitted(next(iter(options)), False, "only option")
+        elif self.sync:
             if need or self._plan is None:
                 decision = self.client.choose(scene, QUESTION, options)
                 admitted = gate(decision, options, self.threshold)

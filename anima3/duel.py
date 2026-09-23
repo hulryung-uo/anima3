@@ -238,6 +238,7 @@ def run_round(a: Fighter, b: Fighter, clients: dict, max_ticks: int, pump_ms: in
 
 
 # --- Server-refereed mode: ServUO's duel system (Scripts/Services/Dueling) owns the rounds ---
+import json
 import re
 
 DUEL_LINE = re.compile(r"^\[Duel\]\s*(.*)$")
@@ -320,7 +321,8 @@ class ServerDuel:
 
 
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
-                     aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0) -> dict:
+                     aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
+                     start_timeout_s: float = 120.0) -> dict:
     for fx, aim in zip((a, b), aims):
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms,
                          log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
@@ -355,6 +357,9 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
         elif ref.state == "challenged" and time.time() - last_try > 20 and ref.tries < 4:
             last_try = time.time()      # the challenge was never seen at all (line lost): say it again
             ref.challenge()
+        elif ref.state in ("challenged", "accepted", "retry") and not ref.rounds_done and time.time() - t0 > start_timeout_s:
+            ref.state = "no-start"      # the bell never rang: give the match back instead of idling out the clock
+            break
     stop.set()
     for t in threads:
         t.join(timeout=5)
@@ -463,9 +468,15 @@ def main(argv: list[str] | None = None) -> int:
                 if mage and n > 1:
                     for fx, spot in ((a, SERVER_MARKS[0]), (b, SERVER_MARKS[1])):
                         stage(gm, fx, spot, args.rules, args.weapon, args.armor, rename=False)
-                res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
-                                       max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
-                                       arena=args.arena)
+                for attempt in range(3):
+                    res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
+                                           max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
+                                           arena=args.arena)
+                    if res["state"] != "no-start":
+                        break
+                    print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
+                    gm.journal_after(f"[DuelReset {args.arena}" if args.arena else "[Duel cancel", pumps=4)   # only our own ring: other arms are mid-match
+                    time.sleep(6)
                 wins = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
                 for line in res["rounds"]:
                     m = re.match(r"Round \d+: (\w+) defeats", line)
@@ -474,6 +485,11 @@ def main(argv: list[str] | None = None) -> int:
                 for k in tally:
                     tally[k] += wins[k]
                 curve.append((n, wins[a.persona.name], wins[b.persona.name], wins["draw"]))
+                with open(f"{args.log_dir}/matches.jsonl", "a") as fh:
+                    fh.write(json.dumps({"match": n, "a": a.persona.name, "a_backend": a.backend, "b": b.persona.name, "b_backend": b.backend,
+                                         "aim_a": aim_a, "state": res["state"], "seconds": res["seconds"], "rounds": res["rounds"],
+                                         "wins_a": wins[a.persona.name], "wins_b": wins[b.persona.name], "draws": wins["draw"],
+                                         "per": res["per"]}) + "\n")
                 pa, pb = res["per"][a.persona.name], res["per"][b.persona.name]
                 print(f"match {n:2d}/{args.matches}: {a.persona.name} {wins[a.persona.name]} - {wins[b.persona.name]} {b.persona.name} (draws {wins['draw']}) "
                       f"[{res['seconds']:.0f}s] | {a.persona.name} casts={pa['casts_ok']} fail={pa['cast_fail']} med={pa['meditations']} "
@@ -487,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
                     aim_a = next_aim(learner, a.persona, aim_a, res, wins, a.persona.name, b.persona.name, playbook, n)
                     print(f"   aim -> {aim_a}", flush=True)
             recon = sum(getattr(fx.body, "reconnects", 0) for fx in (a, b)) + getattr(gm_body, "reconnects", 0)
+            from .stats import describe
+            print(describe(tally[a.persona.name], tally[b.persona.name], a.persona.name))
             print(f"\nrounds: {a.persona.name} {tally[a.persona.name]} - {tally[b.persona.name]} {b.persona.name}, draws {tally['draw']}"
                   + (f" (bridges reconnected {recon}x)" if recon else ""))
             if len(curve) >= 4:

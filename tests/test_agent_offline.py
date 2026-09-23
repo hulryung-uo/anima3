@@ -137,3 +137,25 @@ def test_resilient_body_reconnects_after_a_broken_pipe(monkeypatch):
     rb = body_mod.ResilientBody({"host": "h", "port": 1, "user": "u", "password": "p"}, backoff_s=0)
     rb.act({"type": "Say", "text": "x"})
     assert calls["spawn"] == 2 and rb.reconnects == 1
+
+
+def test_a_single_option_menu_never_asks_the_model():
+    class Counting:
+        name = "count"
+        calls = 0
+
+        def choose(self, scene, question, options):
+            Counting.calls += 1
+            k = next(iter(options))
+            return Decision(k, {o: 1.0 for o in options}, 1.0, 1.0, self.name)
+
+    w = FakeBody(); w.player.dead = False
+    ag = Agent(w, Persona(name="W", talkativeness=0), Counting(), sync=True, pump_ms=0, decide_every=1)
+    import anima3.agent as agent_mod
+    orig = agent_mod.enumerate_affordances
+    agent_mod.enumerate_affordances = lambda *a, **k: orig(*a, **k)[:1]
+    try:
+        reps = ag.run(3)
+    finally:
+        agent_mod.enumerate_affordances = orig
+    assert Counting.calls == 0 and all(r.reason == "only option" for r in reps)
