@@ -107,6 +107,11 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, r
         from .contract import use
         from .magic import REAGENT_GRAPHICS, REAGENT_NAMES, SPELLBOOK_GRAPHIC
         obs = fx.body.observe()
+        for _ in range(20):                         # a fresh login has not been told about its backpack yet
+            if obs.backpack_serial() is not None:
+                break
+            fx.body.pump(250)
+            obs = fx.body.observe()
         bp = obs.backpack_serial()
         if bp is not None and not obs.own_pack():   # the pack must be opened before it can be counted
             fx.body.act(use(bp))
