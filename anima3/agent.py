@@ -65,6 +65,7 @@ class Agent:
         self.aim: str | None = None
         self._reflecting = False
         self.journal_log: list[tuple[int, int, str]] = []   # (tick, speaker serial, text), trimmed
+        self._reconnects_seen = 0
         self.journal_seq = 0                                 # total lines ever appended (the trim-safe cursor)
         self.triage, self.speech = triage, speech
         self.speech_log: list[tuple[int, str, str | None, str]] = []   # (tick, heard, said, reason)
@@ -127,9 +128,15 @@ class Agent:
         if self.tick_no % 20 == 1:
             self.body.act(all_names())  # names arrive asynchronously; refresh them now and then
         obs = self.body.observe()
-        if self.tick_no == 1:
+        reconnects = getattr(self.body, "reconnects", 0)
+        if self.tick_no == 1 or reconnects != self._reconnects_seen:
             # A character that has never opened its own backpack is not told what is in it:
             # `own_pack()` reads empty and every pack-dependent verb disappears (live-caught).
+            # A reconnected bridge is a fresh client that has never opened it either: a mage
+            # that lost its reagents this way stood frozen through whole matches (live-caught).
+            self._reconnects_seen = reconnects
+            if self.tick_no > 1:
+                self.body.act(all_names())
             bp = obs.backpack_serial()
             if bp is not None:
                 self.body.act(click_use(bp))

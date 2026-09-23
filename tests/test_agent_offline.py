@@ -159,3 +159,14 @@ def test_a_single_option_menu_never_asks_the_model():
     finally:
         agent_mod.enumerate_affordances = orig
     assert Counting.calls == 0 and all(r.reason == "only option" for r in reps)
+
+
+def test_agent_reopens_its_backpack_after_the_bridge_reconnects():
+    w = FakeBody()
+    ag = Agent(w, Persona(name="G"), Scripted(), pump_ms=0)
+    opens = lambda: sum(1 for x in w.log if x["type"] == "Use" and x["serial"] == 0x4000_0001)
+    ag.tick(); ag.tick()
+    assert opens() == 1
+    w.reconnects = 1          # what ResilientBody reports after a fresh bridge replaced a dead one
+    ag.tick(); ag.tick()
+    assert opens() == 2

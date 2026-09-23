@@ -324,7 +324,8 @@ class ServerDuel:
 
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
                      aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
-                     start_timeout_s: float = 120.0, sync_a: bool = False, a_challenges: bool = True) -> dict:
+                     start_timeout_s: float = 120.0, sync_a: bool = False, a_challenges: bool = True,
+                     keepalive=None) -> dict:
     for fx, aim in zip((a, b), aims):
         sync = True if (sync_a and fx is a) else None      # None: the agent's default (async for a model)
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms, sync=sync,
@@ -351,9 +352,13 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
     ref.challenge()
     t0 = time.time()
     last_try = time.time()
+    last_ping = time.time()
     while ref.state != "done" and any(t.is_alive() for t in threads) and time.time() - t0 < max_ticks * pump_ms / 1000:
         time.sleep(0.3)
         ref.step()
+        if keepalive is not None and time.time() - last_ping > 10:
+            last_ping = time.time()     # an unpumped staff bridge is dropped by the shard mid-match
+            keepalive.pump(0)
         if ref.state == "retry" and time.time() - last_try > 8:
             last_try = time.time()
             ref.challenge()
@@ -477,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
                     res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
                                            max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
                                            arena=args.arena, sync_a=args.sync_a,
-                                           a_challenges=not (args.alternate and n % 2 == 0))
+                                           a_challenges=not (args.alternate and n % 2 == 0), keepalive=gm_body)
                     if res["state"] != "no-start":
                         break
                     print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
