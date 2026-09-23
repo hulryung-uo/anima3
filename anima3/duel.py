@@ -115,20 +115,37 @@ def stage(gm: Gm, fx: Fighter, spot: Pos, rules: str, weapon: str, armor: str, r
                 obs = fx.body.observe()
                 if obs.own_pack():
                     break
-        have: dict[int, int] = {}
-        for i in obs.own_pack():
-            have[i.graphic] = have.get(i.graphic, 0) + i.amount
-        if SPELLBOOK_GRAPHIC not in have:
-            rep["spellbook"] = gm.command_on("[AddToPack Spellbook 18446744073709551615", fx.serial)   # every spell
+
+        def count() -> dict[int, int]:
+            have: dict[int, int] = {}
+            for i in fx.body.observe().own_pack():
+                have[i.graphic] = have.get(i.graphic, 0) + i.amount
+            return have
+
         # Top every reagent back to the same level before each match: a learning experiment
         # needs the resource state held constant (a 63-round run drifted to 5 black pearls
-        # and the loser simply switched spell, which looked like strategy).
+        # and the loser simply switched spell, which looked like strategy). Verify by counting
+        # again: under load the GM's target cursor can come too late, the command is silently
+        # dropped, and a mage with no black pearl or mandrake stood frozen for whole matches.
+        have = count()
         low = min(have.get(g, 0) for g in REAGENT_GRAPHICS)
-        for g in REAGENT_GRAPHICS:
-            short = REAGENT_TARGET - have.get(g, 0)
-            if short > 0:
-                gm.command_on(f"[AddToPack {REAGENT_NAMES[g]} {short}", fx.serial)
-        rep["reagents"] = f"{low}->{REAGENT_TARGET}"
+        for attempt in range(4):
+            if SPELLBOOK_GRAPHIC not in have:
+                rep["spellbook"] = gm.command_on("[AddToPack Spellbook 18446744073709551615", fx.serial)   # every spell
+            short = {g: REAGENT_TARGET - have.get(g, 0) for g in REAGENT_GRAPHICS if have.get(g, 0) < REAGENT_TARGET}
+            if not short and SPELLBOOK_GRAPHIC in have:
+                break
+            for g, n in short.items():
+                gm.command_on(f"[AddToPack {REAGENT_NAMES[g]} {n}", fx.serial)
+            for _ in range(4):
+                fx.body.pump(250)
+            have = count()
+        missing = [REAGENT_NAMES[g] for g in REAGENT_GRAPHICS if have.get(g, 0) < REAGENT_TARGET]
+        if SPELLBOOK_GRAPHIC not in have:
+            missing.append("Spellbook")
+        rep["reagents"] = f"{low}->{min(have.get(g, 0) for g in REAGENT_GRAPHICS)}"
+        if missing:
+            rep["MISSING"] = missing
         gm.command_on("[Set Hits 90", fx.serial); gm.command_on("[Set Mana 100", fx.serial)
         # a mage duels unarmed: strip anything wielded
         for i in obs.items:
@@ -477,7 +494,9 @@ def main(argv: list[str] | None = None) -> int:
                         gm.command_on("[Set Mana 100", fx.serial)
                 if mage and n > 1:
                     for fx, spot in ((a, SERVER_MARKS[0]), (b, SERVER_MARKS[1])):
-                        stage(gm, fx, spot, args.rules, args.weapon, args.armor, rename=False)
+                        rep = stage(gm, fx, spot, args.rules, args.weapon, args.armor, rename=False)
+                        if rep.get("MISSING"):
+                            print(f"   (staging {fx.persona.name} still short of {rep['MISSING']} after retries)", flush=True)
                 for attempt in range(3):
                     res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
                                            max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
