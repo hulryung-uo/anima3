@@ -202,7 +202,7 @@ def test_critically_hurt_duel_mage_heals_rather_than_only_fleeing():
     for g in REAGENT_GRAPHICS:
         w.add_pack_item(g, 20)
     got = ids(w, memory={"duel": True, "mage": True, "duel_opponent": opp.serial})
-    assert got[0] == "cast:greater_heal" and "flee" not in got
+    assert got[0] == "cast:greater_heal" and "flee" not in got and "hold" not in got
     w.player.mana = 0                      # no mana for a heal: now running is the answer
     got = ids(w, memory={"duel": True, "mage": True, "duel_opponent": opp.serial})
     assert "flee" in got and "cast:greater_heal" not in got

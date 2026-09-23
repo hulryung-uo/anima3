@@ -325,8 +325,9 @@ def enumerate_affordances(obs: Observation, f: Facts, persona: Persona, memory: 
             out.extend(mage_verbs(obs, f, memory, threat))
             if f.hp_pct < 0.35 and not any(a.id == "cast:greater_heal" for a in out):
                 add_flee()   # critical with no heal in reach: only then is running the answer
-            out.append(HOLD)
-            return out
+            # Idling mid-duel is never a tactic when a spell, a heal or meditation is on offer;
+            # left in, it was the model's commonest deviation from the rule (meditate -> hold).
+            return out or [HOLD]
         if f.hp_pct < 0.35 or (being_hit and cannot_fight and threat.distance <= 2):
             add_flee()
             add_bandage()

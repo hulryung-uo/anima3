@@ -322,9 +322,10 @@ class ServerDuel:
 
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
                      aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
-                     start_timeout_s: float = 120.0) -> dict:
+                     start_timeout_s: float = 120.0, sync_a: bool = False) -> dict:
     for fx, aim in zip((a, b), aims):
-        fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms,
+        sync = True if (sync_a and fx is a) else None      # None: the agent's default (async for a model)
+        fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms, sync=sync,
                          log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
         fx.agent.memory["duel"] = True
         fx.agent.memory["mage"] = mage
@@ -397,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--referee", choices=["gm", "server"], default="gm", help="gm: this script referees; server: the shard's duel system does")
     ap.add_argument("--suffix", default="", help="appended to both fighters' names — every arm needs unique names because [Challenge resolves by name")
     ap.add_argument("--no-aim", action="store_true", help="ignore --aim-a: fighter A runs with no standing aim (the raw decision head)")
+    ap.add_argument("--sync-a", action="store_true", help="fighter A waits for its model at every decision instead of letting the rule act while it thinks")
     ap.add_argument("--rule-vs-rule", action="store_true", help="both sides use the rule backend (a symmetry baseline)")
     ap.add_argument("--aim-a", default=None, help="a standing aim placed in fighter A's scene (the slow layer's steering, held fixed)")
     ap.add_argument("--aim-b", default=None, help="same for fighter B")
@@ -471,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
                 for attempt in range(3):
                     res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
                                            max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
-                                           arena=args.arena)
+                                           arena=args.arena, sync_a=args.sync_a)
                     if res["state"] != "no-start":
                         break
                     print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
