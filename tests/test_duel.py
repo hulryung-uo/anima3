@@ -29,8 +29,18 @@ def test_the_failures_that_once_passed_silently_are_void():
     from anima3.duel import validate_match
     frozen = _res(["Round 2 detail: Ilse4 hp 100%, Torvald4 hp 100%, attacks 0/0."], casts=({}, {}))
     got = validate_match(frozen, {"Ilse": 0, "Torvald": 0}, mage=True)
-    assert "round 2: attacks 0/0" in got and "Ilse cast nothing" in got and "Torvald cast nothing" in got
+    assert any(g.startswith("round 2: attacks 0/0") for g in got) and "Ilse cast nothing" in got and "Torvald cast nothing" in got
     clean = _res(["Round 1 detail: Ilse hp 42%, Torvald hp 0%, attacks 17/18."])
     assert validate_match(clean, {"Ilse": 2, "Torvald": 0}, mage=True) == ["Ilse's bridge reconnected 2x"]
     assert validate_match(clean, {}, missing=["Ilse:BlackPearl"]) == ["staging short of Ilse:BlackPearl"]
     assert validate_match(_res([], state="no-start"), {}) == ["match ended in state no-start"]
+
+
+def test_a_fast_wipe_is_a_real_loss_not_a_frozen_fighter():
+    from anima3.duel import validate_match
+    wipe = _res(["Round 1: Torvald defeats Ilse (hp 100%, 8 seconds).",
+                 "Round 1 detail: Torvald hp 100%, Ilse hp 0%, attacks 4/0."])
+    assert validate_match(wipe, {}, mage=True) == []
+    stall = _res(["Round 1: Torvald defeats Ilse (hp 100%, 150 seconds).",
+                  "Round 1 detail: Torvald hp 100%, Ilse hp 0%, attacks 4/0."])
+    assert validate_match(stall, {}, mage=True) == ["round 1: attacks 4/0 in 150 s"]

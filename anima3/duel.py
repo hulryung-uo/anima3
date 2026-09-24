@@ -355,10 +355,20 @@ def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, mi
         problems.append(f"match ended in state {res.get('state')}")
     elif not res.get("rounds"):
         problems.append("no rounds played")
+    secs: dict[str, int] = {}
+    for line in res.get("duel_lines", []):
+        m = re.match(r"Round (\d+): .*?(\d+) seconds\)", line)
+        if m:
+            secs[m.group(1)] = int(m.group(2))
     for line in res.get("duel_lines", []):
         m = re.match(r"Round (\d+) detail: .*attacks (\d+)/(\d+)", line)
-        if m and (m.group(2) == "0" or m.group(3) == "0"):
-            problems.append(f"round {m.group(1)}: attacks {m.group(2)}/{m.group(3)}")
+        if not m:
+            continue
+        rnd, x, y = m.group(1), int(m.group(2)), int(m.group(3))
+        # A side that landed nothing in a long round was frozen; one that landed nothing in an
+        # eight-second wipe simply lost fast, and voiding that would bias the tally toward it.
+        if (x == 0 and y == 0) or ((x == 0 or y == 0) and secs.get(rnd, 0) > 30):
+            problems.append(f"round {rnd}: attacks {x}/{y} in {secs.get(rnd, '?')} s")
     for name, k in reconnects.items():
         if k:
             problems.append(f"{name}'s bridge reconnected {k}x")
