@@ -344,6 +344,31 @@ class ServerDuel:
         self.state = "challenged"
 
 
+def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, missing: list[str] | None = None) -> list[str]:
+    """Reasons a finished match cannot be counted; empty when it ran clean.
+
+    Each rule is a failure that once passed silently into a tally: a frozen fighter (a round
+    with no attacks from one side), a bridge that reconnected mid-match, a mage that never
+    cast (no reagents on its menu), staging that left a fighter short, a match that did not end."""
+    problems = [f"staging short of {', '.join(missing)}"] if missing else []
+    if res.get("state") != "done":
+        problems.append(f"match ended in state {res.get('state')}")
+    elif not res.get("rounds"):
+        problems.append("no rounds played")
+    for line in res.get("duel_lines", []):
+        m = re.match(r"Round (\d+) detail: .*attacks (\d+)/(\d+)", line)
+        if m and (m.group(2) == "0" or m.group(3) == "0"):
+            problems.append(f"round {m.group(1)}: attacks {m.group(2)}/{m.group(3)}")
+    for name, k in reconnects.items():
+        if k:
+            problems.append(f"{name}'s bridge reconnected {k}x")
+    if mage:
+        for name, per in res.get("per", {}).items():
+            if not sum(per.get("casts_ok", {}).values()):
+                problems.append(f"{name} cast nothing")
+    return problems
+
+
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
                      aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
                      start_timeout_s: float = 120.0, sync_a: bool = False, a_challenges: bool = True,
@@ -427,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--referee", choices=["gm", "server"], default="gm", help="gm: this script referees; server: the shard's duel system does")
     ap.add_argument("--suffix", default="", help="appended to both fighters' names — every arm needs unique names because [Challenge resolves by name")
     ap.add_argument("--no-aim", action="store_true", help="ignore --aim-a: fighter A runs with no standing aim (the raw decision head)")
+    ap.add_argument("--replays", type=int, default=2, help="server mode: replay a match that fails validation up to this many times")
     ap.add_argument("--alternate", action="store_true", help="server mode: B challenges in even matches, so neither fighter keeps the challenger's side")
     ap.add_argument("--sync-a", action="store_true", help="fighter A waits for its model at every decision instead of letting the rule act while it thinks")
     ap.add_argument("--rule-vs-rule", action="store_true", help="both sides use the rule backend (a symmetry baseline)")
@@ -470,6 +496,9 @@ def main(argv: list[str] | None = None) -> int:
                              "password": args.gm_pass or args.gm_user})
     gm = Gm(gm_body)
     try:
+        if not any(line.startswith("You are at") for line in gm.journal_after("[Where", pumps=8)):
+            print(f"preflight: {args.gm_user} gets no answer to [Where — not staff (any more?); refusing to run", flush=True)
+            return 2
         gm.go(ARENA[0].x + 2, ARENA[0].y + 3, ARENA[0].z)
         for fx, spot in ((a, ARENA[0]), (b, ARENA[1])):
             rep = stage(gm, fx, spot, args.rules, args.weapon, args.armor)
@@ -489,57 +518,67 @@ def main(argv: list[str] | None = None) -> int:
             playbook = f"{args.log_dir}/playbook.md"
             tally = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
             curve = []
+            voided = 0
             for n in range(1, args.matches + 1):
                 if n > 1:
                     time.sleep(4)        # let the ring clear before the next challenge
-                gm.command_on(f"[Set X {lobby_a.x} Y {lobby_a.y} Z {lobby_a.z}", a.serial)
-                gm.command_on(f"[Set X {lobby_b.x} Y {lobby_b.y} Z {lobby_b.z}", b.serial)
-                if mage:
-                    for fx in (a, b):
-                        gm.command_on("[Set Mana 100", fx.serial)
-                if mage and n > 1:
-                    for fx, spot in ((a, SERVER_MARKS[0]), (b, SERVER_MARKS[1])):
-                        rep = stage(gm, fx, spot, args.rules, args.weapon, args.armor, rename=False)
-                        if rep.get("MISSING"):
-                            print(f"   (staging {fx.persona.name} still short of {rep['MISSING']} after retries)", flush=True)
-                for attempt in range(3):
-                    res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
-                                           max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage, tag=f"m{n:03d}",
-                                           arena=args.arena, sync_a=args.sync_a,
-                                           a_challenges=not (args.alternate and n % 2 == 0), keepalive=gm_body)
-                    if res["state"] != "no-start":
+                for replay in range(args.replays + 1):
+                    gm.command_on(f"[Set X {lobby_a.x} Y {lobby_a.y} Z {lobby_a.z}", a.serial)
+                    gm.command_on(f"[Set X {lobby_b.x} Y {lobby_b.y} Z {lobby_b.z}", b.serial)
+                    missing: list[str] = []
+                    if mage:
+                        for fx, spot in ((a, SERVER_MARKS[0]), (b, SERVER_MARKS[1])):
+                            gm.command_on("[Set Mana 100", fx.serial)
+                            rep = stage(gm, fx, spot, args.rules, args.weapon, args.armor, rename=False)
+                            missing += [f"{fx.persona.name}:{m}" for m in rep.get("MISSING", [])]
+                    before = {fx.persona.name: getattr(fx.body, "reconnects", 0) for fx in (a, b)}
+                    for attempt in range(3):
+                        res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
+                                               max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage,
+                                               tag=f"m{n:03d}" + (f"r{replay}" if replay else ""), arena=args.arena, sync_a=args.sync_a,
+                                               a_challenges=not (args.alternate and n % 2 == 0), keepalive=gm_body)
+                        if res["state"] != "no-start":
+                            break
+                        print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
+                        gm.journal_after(f"[DuelReset {args.arena}" if args.arena else "[Duel cancel", pumps=4)   # only our own ring: other arms are mid-match
+                        time.sleep(6)
+                    reconnects = {fx.persona.name: getattr(fx.body, "reconnects", 0) - before[fx.persona.name] for fx in (a, b)}
+                    problems = validate_match(res, reconnects, mage=mage, missing=missing)
+                    wins = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
+                    for line in res["rounds"]:
+                        m = re.match(r"Round \d+: (\w+) defeats", line)
+                        key = m.group(1) if m else "draw"
+                        wins[key if key in wins else "draw"] += 1
+                    with open(f"{args.log_dir}/matches.jsonl", "a") as fh:
+                        fh.write(json.dumps({"match": n, "replay": replay, "valid": not problems, "problems": problems,
+                                             "a_challenged": not (args.alternate and n % 2 == 0), "a": a.persona.name, "a_backend": a.backend,
+                                             "b": b.persona.name, "b_backend": b.backend, "aim_a": aim_a, "state": res["state"],
+                                             "seconds": res["seconds"], "rounds": res["rounds"], "duel_lines": res["duel_lines"],
+                                             "wins_a": wins[a.persona.name], "wins_b": wins[b.persona.name], "draws": wins["draw"],
+                                             "per": res["per"]}) + "\n")
+                    pa, pb = res["per"][a.persona.name], res["per"][b.persona.name]
+                    print(f"{'match' if not problems else 'VOID '} {n:2d}/{args.matches}: {a.persona.name} {wins[a.persona.name]} - {wins[b.persona.name]} {b.persona.name} (draws {wins['draw']}) "
+                          f"[{res['seconds']:.0f}s] | {a.persona.name} casts={pa['casts_ok']} fail={pa['cast_fail']} med={pa['meditations']} "
+                          f"| {b.persona.name} casts={pb['casts_ok']} fail={pb['cast_fail']}", flush=True)
+                    if res.get("lost_lines"):
+                        print(f"   (referee missed {res['lost_lines']} journal lines)", flush=True)
+                    if not problems:
                         break
-                    print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
-                    gm.journal_after(f"[DuelReset {args.arena}" if args.arena else "[Duel cancel", pumps=4)   # only our own ring: other arms are mid-match
+                    voided += 1
+                    print(f"   void: {'; '.join(problems)}" + (" — replaying" if replay < args.replays else " — giving up on this match"), flush=True)
                     time.sleep(6)
-                wins = {a.persona.name: 0, b.persona.name: 0, "draw": 0}
-                for line in res["rounds"]:
-                    m = re.match(r"Round \d+: (\w+) defeats", line)
-                    key = m.group(1) if m else "draw"
-                    wins[key if key in wins else "draw"] += 1
+                if problems:
+                    continue                     # a match that never ran clean is left out of the tally and the learner
                 for k in tally:
                     tally[k] += wins[k]
                 curve.append((n, wins[a.persona.name], wins[b.persona.name], wins["draw"]))
-                with open(f"{args.log_dir}/matches.jsonl", "a") as fh:
-                    fh.write(json.dumps({"match": n, "a_challenged": not (args.alternate and n % 2 == 0), "a": a.persona.name, "a_backend": a.backend, "b": b.persona.name, "b_backend": b.backend,
-                                         "aim_a": aim_a, "state": res["state"], "seconds": res["seconds"], "rounds": res["rounds"],
-                                         "wins_a": wins[a.persona.name], "wins_b": wins[b.persona.name], "draws": wins["draw"],
-                                         "per": res["per"]}) + "\n")
-                pa, pb = res["per"][a.persona.name], res["per"][b.persona.name]
-                print(f"match {n:2d}/{args.matches}: {a.persona.name} {wins[a.persona.name]} - {wins[b.persona.name]} {b.persona.name} (draws {wins['draw']}) "
-                      f"[{res['seconds']:.0f}s] | {a.persona.name} casts={pa['casts_ok']} fail={pa['cast_fail']} med={pa['meditations']} "
-                      f"| {b.persona.name} casts={pb['casts_ok']} fail={pb['cast_fail']}", flush=True)
-                if res["state"] != "done":
-                    print("   (match did not finish: state", res["state"], ")", flush=True)
-                if res.get("lost_lines"):
-                    print(f"   (referee missed {res['lost_lines']} journal lines)", flush=True)
                 if learner is not None:
                     from .learn import next_aim
                     aim_a = next_aim(learner, a.persona, aim_a, res, wins, a.persona.name, b.persona.name, playbook, n)
                     print(f"   aim -> {aim_a}", flush=True)
             recon = sum(getattr(fx.body, "reconnects", 0) for fx in (a, b)) + getattr(gm_body, "reconnects", 0)
             from .stats import describe
-            print(describe(tally[a.persona.name], tally[b.persona.name], a.persona.name))
+            print(describe(tally[a.persona.name], tally[b.persona.name], a.persona.name) + (f"; {voided} void attempts replayed or dropped" if voided else ""))
             print(f"\nrounds: {a.persona.name} {tally[a.persona.name]} - {tally[b.persona.name]} {b.persona.name}, draws {tally['draw']}"
                   + (f" (bridges reconnected {recon}x)" if recon else ""))
             if len(curve) >= 4:

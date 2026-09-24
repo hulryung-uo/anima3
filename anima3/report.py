@@ -37,6 +37,19 @@ def read_out(path: str) -> list[dict]:
     return out
 
 
+def read_matches(arm_dir: str) -> tuple[list[dict], int] | None:
+    """Validated runs record every attempt in matches.jsonl: count the valid ones, and the voids."""
+    path = f"{arm_dir}/matches.jsonl"
+    if not os.path.exists(path):
+        return None
+    with open(path) as fh:
+        recs = [json.loads(x) for x in fh if x.strip()]
+    if not recs or "valid" not in recs[0]:
+        return None
+    ok = [{"match": r["match"], "w": r["wins_a"], "l": r["wins_b"], "d": r["draws"], "recon": 0} for r in recs if r["valid"]]
+    return ok, sum(1 for r in recs if not r["valid"])
+
+
 def decisions(arm_dir: str) -> dict:
     """Who decided fighter A's multi-option ticks, and how often the pick differed from the rule's."""
     reasons, n, dev = collections.Counter(), 0, 0
@@ -73,7 +86,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baseline", default="rule")
     args = ap.parse_args(argv)
     arms = sorted(os.path.basename(p)[:-4] for p in glob.glob(f"{args.dir}/*.out"))
-    data = {a: read_out(f"{args.dir}/{a}.out") for a in arms}
+    data, voids = {}, {}
+    for a in arms:
+        validated = read_matches(f"{args.dir}/{a}")
+        if validated is not None:
+            data[a], voids[a] = validated
+        else:
+            data[a] = read_out(f"{args.dir}/{a}.out")
+    if voids:
+        print("validated arms (void attempts excluded): " + ", ".join(f"{a} {v} void" for a, v in voids.items()))
 
     def tally(ms, clean=False):
         ms = [m for m in ms if not (clean and m["recon"])]
