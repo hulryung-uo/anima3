@@ -374,8 +374,10 @@ def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, mi
             problems.append(f"{name}'s bridge reconnected {k}x")
     if mage:
         for name, per in res.get("per", {}).items():
-            if not sum(per.get("casts_ok", {}).values()):
-                problems.append(f"{name} cast nothing")
+            # Frozen means never even trying (no reagents on the menu). A mage that tried nine
+            # times and was interrupted every time lost for real; voiding that biased the tally.
+            if not sum(per.get("casts_ok", {}).values()) and not sum(per.get("cast_fail", {}).values()):
+                problems.append(f"{name} never tried to cast")
     return problems
 
 

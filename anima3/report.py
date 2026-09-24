@@ -46,8 +46,24 @@ def read_matches(arm_dir: str) -> tuple[list[dict], int] | None:
         recs = [json.loads(x) for x in fh if x.strip()]
     if not recs or "valid" not in recs[0]:
         return None
-    ok = [{"match": r["match"], "w": r["wins_a"], "l": r["wins_b"], "d": r["draws"], "recon": 0} for r in recs if r["valid"]]
-    return ok, sum(1 for r in recs if not r["valid"])
+    # Judge every attempt by today's rules (a run keeps the validator it started with), and take
+    # the first valid attempt of each match: a replay exists only because an earlier one was voided.
+    import re as _re
+
+    from .duel import validate_match
+    first: dict[int, dict] = {}
+    voids = 0
+    for r in recs:
+        recon = {m.group(1): int(m.group(2)) for p in r.get("problems", [])
+                 for m in [_re.match(r"(\S+)'s bridge reconnected (\d+)x", p)] if m}
+        missing = [p for p in r.get("problems", []) if p.startswith("staging short")]
+        if validate_match(r, recon, mage=True, missing=missing):
+            voids += 1
+        elif r["match"] not in first:
+            first[r["match"]] = r
+    ok = [{"match": r["match"], "w": r["wins_a"], "l": r["wins_b"], "d": r["draws"], "recon": 0}
+          for _, r in sorted(first.items())]
+    return ok, voids
 
 
 def decisions(arm_dir: str) -> dict:
