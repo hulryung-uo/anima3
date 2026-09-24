@@ -57,6 +57,14 @@ def read_matches(arm_dir: str) -> tuple[list[dict], int] | None:
         recon = {m.group(1): int(m.group(2)) for p in r.get("problems", [])
                  for m in [_re.match(r"(\S+)'s bridge reconnected (\d+)x", p)] if m}
         missing = [p for p in r.get("problems", []) if p.startswith("staging short")]
+        if "model_ms" not in r["per"].get(r["a"], {}):          # recorded before latency was: read it from the log
+            tag = f"m{r['match']:03d}" + (f"r{r['replay']}" if r.get("replay") else "")
+            log = f"{arm_dir}/{tag}-{r['a'].lower()}.jsonl"
+            if os.path.exists(log):
+                with open(log) as fh:
+                    ms = sorted((json.loads(x).get("decision") or {}).get("ms") or 0 for x in fh)
+                ms = [m for m in ms if m]
+                r["per"].setdefault(r["a"], {})["model_ms"] = ms[len(ms) // 2] if ms else None
         if validate_match(r, recon, mage=True, missing=missing):
             voids += 1
         elif r["match"] not in first:
@@ -109,6 +117,11 @@ def main(argv: list[str] | None = None) -> int:
             data[a], voids[a] = validated
         else:
             data[a] = read_out(f"{args.dir}/{a}.out")
+    for a in [x for x in arms if x.endswith("-b") and x[:-2] in data]:   # a continuation arm counts with its parent
+        base = max((m["match"] for m in data[a[:-2]]), default=0)
+        data[a[:-2]] += [dict(m, match=base + m["match"]) for m in data.pop(a)]
+        voids[a[:-2]] = voids.get(a[:-2], 0) + voids.pop(a, 0)
+    arms = [x for x in arms if x in data]
     if voids:
         print("validated arms (void attempts excluded): " + ", ".join(f"{a} {v} void" for a, v in voids.items()))
 

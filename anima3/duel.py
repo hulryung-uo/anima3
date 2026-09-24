@@ -344,7 +344,13 @@ class ServerDuel:
         self.state = "challenged"
 
 
-def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, missing: list[str] | None = None) -> list[str]:
+def _median(xs: list[float]) -> float | None:
+    xs = sorted(xs)
+    return xs[len(xs) // 2] if xs else None
+
+
+def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, missing: list[str] | None = None,
+                   max_model_ms: float = 1000.0) -> list[str]:
     """Reasons a finished match cannot be counted; empty when it ran clean.
 
     Each rule is a failure that once passed silently into a tally: a frozen fighter (a round
@@ -372,6 +378,11 @@ def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, mi
     for name, k in reconnects.items():
         if k:
             problems.append(f"{name}'s bridge reconnected {k}x")
+    for name, per in res.get("per", {}).items():
+        # A decision head measured at ~250 ms is a different arm at 2 s: in experiment 3 Jev's API
+        # slowed to 2-3 s for half an hour and both Jev arms lost 0-30 rounds in that window.
+        if (per.get("model_ms") or 0) > max_model_ms:
+            problems.append(f"{name}'s model took {per['model_ms']:.0f} ms per decision (limit {max_model_ms:.0f})")
     if mage:
         for name, per in res.get("per", {}).items():
             # Frozen means never even trying (no reagents on the menu). A mage that tried nine
@@ -439,7 +450,8 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
                                 "casts_ok": dict(collections.Counter(k for (k, v) in casts.elements() if v == "ok")),
                                 "cast_fail": dict(collections.Counter(v for (k, v) in casts.elements() if v != "ok")),
                                 "meditations": sum(1 for _, pid, v in fx.agent.proc_log if pid == "meditate" and v == "ok"),
-                                "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"])}
+                                "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"]),
+                                "model_ms": _median([r.ms for r in fx.agent.reports if r.ms])}
     return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match or (f"(no match; last error: {ref.error})" if ref.error else None),
             "lost_lines": ref.lost, "seconds": round(time.time() - t0, 1),
             "duel_lines": ref.log, "per": per}

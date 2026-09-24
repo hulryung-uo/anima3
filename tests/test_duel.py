@@ -53,3 +53,12 @@ def test_a_mage_interrupted_every_time_lost_for_real():
                 "Round 1 detail: Ilse hp 0%, Torvald hp 100%, attacks 0/4."],
                casts=({}, {"energy_bolt": 9}), fails=({"no cursor": 6, "interrupted": 3}, {}))
     assert validate_match(res, {}, mage=True) == []
+
+
+def test_a_model_that_slowed_to_seconds_voids_the_match():
+    from anima3.duel import validate_match
+    res = _res(["Round 1 detail: Ilse hp 0%, Torvald hp 100%, attacks 2/5."])
+    res["per"]["Ilse"]["model_ms"] = 2100.0
+    assert validate_match(res, {}, mage=True) == ["Ilse's model took 2100 ms per decision (limit 1000)"]
+    res["per"]["Ilse"]["model_ms"] = 280.0
+    assert validate_match(res, {}, mage=True) == []
