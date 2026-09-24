@@ -150,8 +150,19 @@ class ResilientBody:
         self._args = spawn_args
         self._retries = max_retries
         self._backoff = backoff_s
-        self._body = BridgeBody.spawn(**spawn_args)
         self.reconnects = 0
+        for attempt in range(max_retries):
+            try:
+                self._body = BridgeBody.spawn(**spawn_args)
+                break
+            except BodyError as e:
+                # A character whose previous session just ended is still held by the shard for
+                # a few seconds and the login is refused; the first spawn waits it out too.
+                if attempt == max_retries - 1:
+                    raise
+                sys.stderr.write(f"[body] login {attempt + 1}/{max_retries} as {spawn_args.get('user')} failed: {e}\n")
+                import time as _t
+                _t.sleep(backoff_s * (attempt + 1))
 
     @property
     def ready(self) -> dict[str, Any]:
