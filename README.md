@@ -364,6 +364,58 @@ tracks journal position by list length goes deaf once the log is trimmed; and an
 waiting in a lobby hears whatever match takes that ring, so a referee must ignore result lines
 that are not about its own two fighters.
 
+### Experiment 2: what the first hundred rounds were actually measuring
+
+Before rerunning, the logs of the arms above were read decision by decision, and they had
+measured almost nothing about the heads:
+
+- **87% of fighter A's decisions were one-option menus.** The commonest action of a mage with
+  84/100 mana was `flee`: the critical-health branch (under 35%) ran before the mage branch and
+  offered only running or a bandage the mage did not carry. Both sides had it, so every round
+  was "whoever drops under 35% first runs until caught". Fixed: a duel mage keeps its menu
+  (Greater Heal first) and flees only when no heal is castable. Heals per match went 2-4 → 9-11.
+- **An asynchronous model barely decides.** Ticks come every 250 ms and a model answers in
+  200-250 ms; by the time it answers, the menu has usually moved and the answer is dropped.
+  Over experiment 2 the rule, acting while the model was still thinking, made 68-73% of Jev's
+  multi-option decisions and the gate rejected most of the rest; **Jev itself chose 8-13%.**
+  One-option menus no longer call the model at all.
+- **Where the model did deviate, it mostly chose to idle** (`meditate → hold`). A mage menu
+  with anything castable no longer offers `hold`.
+
+Experiment 2 then ran four arms × 40 matches × best of 5 (fighter A vs the rule):
+
+| arm | rounds (A–B) | A's share, 95% CI | vs rule baseline |
+|---|---|---|---|
+| rule vs rule | 83 – 84 | 49.7% (42–57%) | — |
+| Jev, fixed aim | 83 – 86 | 49.1% (42–57%) | p = 0.91 |
+| Jev + learned aims | 76 – 84 | 47.5% (40–55%) | p = 0.69 |
+
+Jev with async decisions is the rule, because the rule is what made the decisions. This is
+not a verdict on Jev. The side advantage the rule-vs-rule arm seemed to show at 49 rounds
+(41%) was gone by 167. `python -m anima3.report <dir>` prints this table, the reconnect-free
+subset, and who made the decisions.
+
+Experiment 3 (`--sync-a --alternate`) makes fighter A wait for its model at each choice (a cast
+takes 1-2 s, so ~250 ms of thought costs ~12% of tempo) and swaps the challenger every match.
+In its first matches Jev made **70%** of its own decisions, up from 8%. It was stopped after
+three matches, before it had a result.
+
+What broke this run, each found by reading a dead match rather than trusting the tally:
+
+- **A reconnected bridge is a fresh client that has never opened its backpack.** It sees no
+  reagents, so every spell leaves the menu. The agent now reopens the pack after a reconnect.
+- **GM commands fail silently.** `[AddToPack` waits for a target cursor; under swap pressure
+  the cursor came late and the command was dropped. One fighter went into matches with 14 stacks
+  of ginseng and no black pearl, mandrake, nightshade or ash, and both sides stood through
+  five 180-second draws. Staging now counts the pack again, retries, and reports what is
+  still `MISSING`.
+- **A staff character lost GameMaster access** (`anima3gm5`, cause unknown); `[Set` on an
+  offline character does nothing, so it cannot simply be restored from another account. Check
+  staff with `[Where` before a run.
+- **Memory, not the model, dropped the bridges.** Swap stood at 22.9 of 23.5 GB (a browser held
+  ~8 GB), so processes stalled and the shard dropped their bridges. The one arm that loaded Qwen
+  reconnected 28 times; the Jev arms 10-15 times.
+
 ### Rings
 
 Fourteen arenas: twelve standard 9x5 rings, one **large 21x13** (kiting and meditation become
@@ -397,9 +449,33 @@ Watch any of them with anima-client's own renderer, one spectator per ring:
 | `magic.py` | the spell table, cast procedure and the mage's closed menu |
 | `learn.py` | the between-match playbook: the slow layer rewrites the standing tactic |
 | `calibrate.py` | outcome-labelled temperature scaling over the decision logs |
+| `stats.py` · `report.py` | Wilson intervals, binomial and two-proportion tests · per-arm experiment summary |
+| `experiments/` | the arm launcher and watcher used for experiments 2 and 3 |
 
-## Not yet
+## Next
 
-- No economy (mine/smelt/craft/sell/bank) — the verb menu is survival, loot, greet, wander. Adding a verb is one `Affordance` with its actions; the model needs no change.
-- Confidence is uncalibrated. The JSONL log is the dataset for calibrating it — or for training the real System One head on outcomes.
-- One character per process; no memory beyond "greeted" and "engaged".
+1. **Finish experiment 3.** Jev, Jev + learning and a rule baseline, synchronous and alternating,
+   40 matches each (~200 rounds detects a 10-point difference). Until then there is no measured
+   answer to "does the head beat the rule".
+2. **Make every match check itself.** Every failure above was found by hand. Before each match,
+   check staff access, the spellbook and all eight reagents, and the pack weight. After it, if a
+   side never cast a bolt or a heal, a round had no attacks, or a bridge reconnected mid-round,
+   mark the match invalid and replay it.
+3. **Put the model where magnitudes matter, not where reflexes do.** In a 5x mage duel the
+   rule's order (heal under half, else the heaviest bolt the mana allows) is close to optimal,
+   and a head can only lose tempo by deviating. Jev's measured strength is judging magnitudes
+   (14/14 on the probes where the open imitations scored 6/14). Ask it at phase boundaries:
+   which playbook this round, whether to trade mana for damage, when to reset. Let a rule or
+   a learned reflex execute each tick. The same layering fits the village: which skill to
+   train next, when to sell, whether a hunt is worth it.
+4. **Give the duel choices that have no obvious right answer.** Paralyze → Explosion → Energy
+   Bolt combos, holding a precast spell, poison pressure, mana drain, line-of-sight in the large
+   and corridor rings. Until the rule has real rivals, "beats the rule" stays near 50% by
+   construction.
+5. **Train on outcomes.** Experiments 1-3 logged over 100k decision ticks with scenes, options
+   and round results. A small head that predicts P(win round | scene, action), trained on those
+   logs, is the real System One step; logprob confidence has been measured to predict nothing
+   (ECE 0.585).
+6. **Cheaper runs.** Jev and rule arms need no GPU, so ten can share the fourteen rings. Swap,
+   not CPU, is the limit. Pair each head against its mirror (swap sides between matches) to cut
+   the rounds needed.
