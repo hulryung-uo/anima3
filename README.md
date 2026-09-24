@@ -400,6 +400,32 @@ takes 1-2 s, so ~250 ms of thought costs ~12% of tempo) and swaps the challenger
 In its first matches Jev made **70%** of its own decisions, up from 8%. It was stopped after
 three matches, before it had a result.
 
+Experiment 3 was rerun to 17-27 valid matches per arm and stopped there (the laptop was on
+battery). Every match was validated; slow-model matches were voided (see below):
+
+| arm (fighter A decides every choice) | rounds | A's share, 95% CI | vs rule baseline |
+|---|---|---|---|
+| rule vs rule, challenger alternating | 39 – 26 | 60.0% (48–71%) | — |
+| Jev | 48 – 41 | 53.9% (44–64%) | p = 0.45 |
+| Jev + learned aims | 47 – 48 | 49.5% (40–59%) | p = 0.19 |
+| **Qwen** | **34 – 76** | **30.9% (23–40%)** | **p < 0.001** |
+
+- **Qwen deciding for itself is clearly worse than the rule**, the first significant result of
+  the series. It overrode the rule 475 times, mostly to meditate instead of casting a cheaper
+  spell (Harm, Fireball, Magic Arrow → meditate, 419 times), giving up tempo while being hit.
+- **Jev is level with the rule.** It overrode it far less (95 times). Learned aims did not help.
+  The learner's aim decayed into pasted counters ("... Magic_arrow 6. No cursor 8.").
+- **Thinking time decides rounds.** A bolt lands about every two seconds and interrupts the
+  target's cast, so whoever lands first can chain-interrupt. For about 30 minutes Jev's API took
+  2-3 s per call; in that window both Jev arms lost **0-30 rounds**. Such matches are now void
+  (median model latency over 1 s).
+- The rule-vs-rule A side's 60% (p = 0.14) is not yet a proven side advantage, but compare arms
+  with the baseline, never with a coin.
+
+The conclusion for the design: a head that decides every tick can only lose tempo against a
+near-optimal rule. Ask the model at round or phase boundaries (which playbook to use) and let
+the rule execute.
+
 What broke this run, each found by reading a dead match rather than trusting the tally:
 
 - **A reconnected bridge is a fresh client that has never opened its backpack.** It sees no
@@ -454,9 +480,9 @@ Watch any of them with anima-client's own renderer, one spectator per ring:
 
 ## Next
 
-1. **Finish experiment 3.** Jev, Jev + learning and a rule baseline, synchronous and alternating,
-   40 matches each (~200 rounds detects a 10-point difference). Until then there is no measured
-   answer to "does the head beat the rule".
+1. **Top up experiment 3 to 40 matches per arm** (`experiments/run_arm.sh <arm>-b ... --matches N`;
+   the report merges `<arm>-b` into `<arm>`). Qwen's result is already settled; Jev vs rule needs
+   more rounds.
 2. **Make every match check itself.** Every failure above was found by hand. Before each match,
    check staff access, the spellbook and all eight reagents, and the pack weight. After it, if a
    side never cast a bolt or a heal, a round had no attacks, or a bridge reconnected mid-round,
