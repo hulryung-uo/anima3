@@ -1,6 +1,6 @@
 """Typed views over the anima-client Observation JSON, and Action JSON builders.
 
-Field names mirror `anima-contract-json` (schema 32) verbatim. Only what this
+Field names mirror `anima-contract-json` (schema 33) verbatim. Only what this
 brain reads is modelled; unknown keys are ignored so additive schema bumps are
 harmless. Actions are plain dicts of exactly the shape `action_from_json` parses.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 
 #: UO direction numbering, as `Walk{dir}` expects. Index -> (dx, dy).
 DIRECTION_DELTAS: list[tuple[int, int]] = [
@@ -71,6 +71,11 @@ class Player:
     weight_max: int = 0
     poisoned: bool = False
     dead: bool = False
+    # Our own condition (schema 33): a looter that went grey reads notoriety 3.
+    hidden: bool = False
+    paralyzed: bool = False
+    notoriety: int = 1
+    mounted: bool = False
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Player:
@@ -83,6 +88,8 @@ class Player:
             gold=int(d.get("gold", 0)), weight=int(d.get("weight", 0)),
             weight_max=int(d.get("weight_max", 0)),
             poisoned=bool(d.get("poisoned", False)), dead=bool(d.get("dead", False)),
+            hidden=bool(d.get("hidden", False)), paralyzed=bool(d.get("paralyzed", False)),
+            notoriety=int(d.get("notoriety", 1)), mounted=bool(d.get("mounted", False)),
         )
 
     @property
@@ -147,6 +154,8 @@ class Item:
     container: int | None
     layer: int
     distance: int
+    hue: int = 0        # schema 33: ore, ingot, leather and board kinds differ by hue alone
+    name: str = ""
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Item:
@@ -155,7 +164,7 @@ class Item:
             serial=int(d.get("serial", 0)), graphic=int(d.get("graphic", 0)),
             amount=int(d.get("amount", 1)), pos=Pos.from_json(d.get("pos")),
             container=None if c is None else int(c), layer=int(d.get("layer", 0)),
-            distance=int(d.get("distance", 0)),
+            distance=int(d.get("distance", 0)), hue=int(d.get("hue", 0)), name=str(d.get("name") or ""),
         )
 
 

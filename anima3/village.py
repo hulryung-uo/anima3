@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass
 
 from .agent import Agent
-from .body import BridgeBody
+from .body import DEFAULT_HOST, DEFAULT_PORT, BridgeBody
 from .contract import Pos
 from .decision import build_client
 from .economy import MINE_SPOT
@@ -83,7 +83,7 @@ def stage(gm: Gm, m: Member, prey: str, prey_count: int) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="anima3.village")
     ap.add_argument("--roster", nargs="+", required=True, help="account:persona:mode ...")
-    ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2593)
+    ap.add_argument("--host", default=DEFAULT_HOST); ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--gm-user", default="anima3"); ap.add_argument("--gm-pass", default="anima3")
     ap.add_argument("--backend", default="qwen"); ap.add_argument("--triage", default="laya", help="laya | jev | keywords | off")
     ap.add_argument("--no-speech", action="store_true")

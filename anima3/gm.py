@@ -15,7 +15,7 @@ import argparse
 import sys
 import time
 
-from .body import BridgeBody
+from .body import DEFAULT_HOST, DEFAULT_PORT, BridgeBody
 from .contract import Observation, chebyshev, say, target_ground, target_object
 
 
@@ -199,7 +199,7 @@ class Gm:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="anima3.gm")
-    ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2593)
+    ap.add_argument("--host", default=DEFAULT_HOST); ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--user", default="anima3"); ap.add_argument("--pass", dest="password", default="anima3")
     ap.add_argument("--createworld", action="store_true")
     ap.add_argument("--spawn", metavar="KIND"); ap.add_argument("--dx", type=int, default=3); ap.add_argument("--dy", type=int, default=0)

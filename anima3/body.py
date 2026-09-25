@@ -48,6 +48,9 @@ class Body(Protocol):
     def close(self) -> None: ...
 
 
+#: The shard. The hosted one by default; `ANIMA3_HOST=127.0.0.1` for a local ServUO.
+DEFAULT_HOST = os.environ.get("ANIMA3_HOST", "uo.hulryung.com")
+DEFAULT_PORT = int(os.environ.get("ANIMA3_PORT", "2593"))
 DEFAULT_BRIDGE = Path.home() / "dev" / "uo" / "anima-client" / "target" / "release" / "anima-bridge"
 DEFAULT_DATA_DIR = Path.home() / "dev" / "uo" / "uo-resource"
 _MONITOR_RE = re.compile(r"monitor on (http://[^\s]+)")

@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 
 from .agent import Agent
-from .body import BridgeBody, ResilientBody
+from .body import DEFAULT_HOST, DEFAULT_PORT, BridgeBody, ResilientBody
 from .contract import Pos
 from .decision import build_client
 from .gm import Gm
@@ -479,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--learn", action="store_true", help="server mode: after each match the slow layer rewrites fighter A's aim from the playbook")
     ap.add_argument("--armor", choices=list(ARMOR), default="leather")
     ap.add_argument("--rounds", type=int, default=3); ap.add_argument("--max-ticks", type=int, default=400)
-    ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2593)
+    ap.add_argument("--host", default=DEFAULT_HOST); ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--gm-user", default="anima3"); ap.add_argument("--gm-pass", default=None,
                     help="defaults to the same string as --gm-user")
     ap.add_argument("--pump-ms", type=int, default=250); ap.add_argument("--speech", action="store_true")

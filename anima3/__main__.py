@@ -1,5 +1,5 @@
 """CLI.  Offline:  python -m anima3 --offline hostile --backend qwen
-        Live:     python -m anima3 --host 127.0.0.1 --port 2594 --user anima3 --pass anima3 --monitor 8801
+        Live:     python -m anima3 --user anima3 --pass anima3 --monitor 8801   (shard: ANIMA3_HOST, default uo.hulryung.com)
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sys
 import time
 
 from .agent import Agent, TickReport
-from .body import BridgeBody, FakeBody
+from .body import DEFAULT_HOST, DEFAULT_PORT, BridgeBody, FakeBody
 from .contract import BANDAGE_GRAPHIC, GOLD_GRAPHIC
 from .decision import build_client
 from .persona import Persona, bundled
@@ -45,7 +45,7 @@ def _print(rep: TickReport) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="anima3")
     ap.add_argument("--offline", metavar="SCENARIO", help="hostile | town | ambush (no server)")
-    ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2594)
+    ap.add_argument("--host", default=DEFAULT_HOST); ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--user", default="anima3"); ap.add_argument("--pass", dest="password", default="anima3")
     ap.add_argument("--data-dir", default=None); ap.add_argument("--monitor", type=int, default=None)
     ap.add_argument("--backend", default="qwen", help="qwen | jeff | scripted")

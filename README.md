@@ -48,7 +48,8 @@ uv run python -m anima3 --offline hostile --backend qwen --persona adventurer
 uv run python -m anima3 --offline ambush  --backend qwen --persona miner
 uv run python -m anima3 --offline town    --backend scripted        # the rule alone
 
-# live: needs ServUO on :2593 and the bridge built in ../anima-client
+# live: the hosted shard uo.hulryung.com:2593 by default (ANIMA3_HOST=127.0.0.1 for a local ServUO);
+# staff commands need the `anima3` account, the only one with staff access there; the bridge is built in ../anima-client
 ( cd ../anima-client && cargo build --release -p anima-net && cp target/release/anima-agent target/release/anima-bridge )
 uv run python -m anima3.gm --createworld            # once, as the owner account
 uv run python -m anima3.gm --spawn Mongbat --dx 4   # something to meet
