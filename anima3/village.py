@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--roster", nargs="+", required=True, help="account:persona:mode ...")
     ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=2593)
     ap.add_argument("--gm-user", default="anima3"); ap.add_argument("--gm-pass", default="anima3")
-    ap.add_argument("--backend", default="qwen"); ap.add_argument("--triage", default="laya")
+    ap.add_argument("--backend", default="qwen"); ap.add_argument("--triage", default="laya", help="laya | jev | keywords | off")
     ap.add_argument("--no-speech", action="store_true")
     ap.add_argument("--ticks", type=int, default=400); ap.add_argument("--pump-ms", type=int, default=300)
     ap.add_argument("--prey", default="Mongbat"); ap.add_argument("--prey-count", type=int, default=2)

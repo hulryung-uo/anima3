@@ -2,6 +2,8 @@
 
 The duels are decided in rounds, and rounds within a match are close to independent (both
 fighters are restored between them), so a win rate over rounds is a binomial proportion.
+Close, not quite: what goes wrong goes wrong for a whole match (a slow API, a reconnecting
+bridge), so `match_perm_p` compares arms by shuffling whole matches, not rounds.
 """
 from __future__ import annotations
 
@@ -54,3 +56,21 @@ def describe(wins: int, losses: int, name: str) -> str:
     lo, hi = wilson(wins, n)
     return (f"{name}: {wins}/{n} decided rounds = {wins / n:.1%} (95% CI {lo:.1%}–{hi:.1%}), "
             f"p = {binom_two_sided(wins, n):.3f} against a coin")
+
+
+def match_perm_p(a: list[tuple[int, int]], b: list[tuple[int, int]], n: int = 20000, seed: int = 0) -> float:
+    """Two-sided permutation p that two arms' round shares differ, shuffling whole matches
+    ((won, lost) per match) between the arms — the unit that failures actually cluster in."""
+    import random
+
+    def share(ms):
+        t = sum(w + l for w, l in ms)
+        return sum(w for w, _ in ms) / t if t else 0.0
+    if not a or not b:
+        return 1.0
+    obs = abs(share(a) - share(b))
+    pool, rng, hits = list(a) + list(b), random.Random(seed), 0
+    for _ in range(n):
+        rng.shuffle(pool)
+        hits += abs(share(pool[:len(a)]) - share(pool[len(a):])) >= obs - 1e-12
+    return hits / n

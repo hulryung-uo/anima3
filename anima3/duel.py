@@ -318,6 +318,9 @@ class ServerDuel:
                 self.state = "accepted"
             elif low.startswith("fight"):
                 for fx, other in ((self.a, self.b), (self.b, self.a)):
+                    won = lambda who: sum(1 for r in self.rounds_done if re.match(rf"^Round \d+: {re.escape(who)} defeats", r))
+                    fx.agent.memory["duel_round"] = len(self.rounds_done) + 1
+                    fx.agent.memory["duel_score"] = (won(fx.persona.name), won(other.persona.name))
                     fx.agent.memory["duel_opponent"] = other.serial
                 self.state = "fighting"
             elif re.match(r"^round \d+: ", low):                       # "Round 1: Kael defeats Rook (...)"
@@ -395,13 +398,21 @@ def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, mi
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
                      aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
                      start_timeout_s: float = 120.0, sync_a: bool = False, a_challenges: bool = True,
-                     keepalive=None) -> dict:
+                     keepalive=None, judge_a=None, playbook_a: str | None = None) -> dict:
     for fx, aim in zip((a, b), aims):
         sync = True if (sync_a and fx is a) else None      # None: the agent's default (async for a model)
+        tactician = None
+        if fx is a and judge_a is not None:
+            from .judge import Asker
+            from .tactics import Tactician
+            tactician = Tactician(Asker(judge_a, log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}-judge.jsonl"))
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms, sync=sync,
-                         log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0)
+                         log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0,
+                         tactician=tactician)
         fx.agent.memory["duel"] = True
         fx.agent.memory["mage"] = mage
+        if fx is a and playbook_a:
+            fx.agent.memory["playbook"] = playbook_a     # a fixed playbook arm: no judge, the rule runs this order throughout
         fx.agent.aim = aim
     ref = ServerDuel(a, b, rounds, rules_token, arena, a_challenges)
     stop = threading.Event()
@@ -452,6 +463,8 @@ def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_t
                                 "meditations": sum(1 for _, pid, v in fx.agent.proc_log if pid == "meditate" and v == "ok"),
                                 "model": (fx.agent.summary()["model_calls"], fx.agent.summary()["model_admitted"]),
                                 "model_ms": _median([r.ms for r in fx.agent.reports if r.ms])}
+        if fx.agent.tactician is not None:
+            per[fx.persona.name]["tactics"] = fx.agent.tactician.summary()
     return {"state": ref.state, "rounds": ref.rounds_done, "match": ref.match or (f"(no match; last error: {ref.error})" if ref.error else None),
             "lost_lines": ref.lost, "seconds": round(time.time() - t0, 1),
             "duel_lines": ref.log, "per": per}
@@ -482,6 +495,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rule-vs-rule", action="store_true", help="both sides use the rule backend (a symmetry baseline)")
     ap.add_argument("--aim-a", default=None, help="a standing aim placed in fighter A's scene (the slow layer's steering, held fixed)")
     ap.add_argument("--aim-b", default=None, help="same for fighter B")
+    ap.add_argument("--tactics-a", choices=["none", "jev", "qwen", "random"], default="none",
+                    help="server mode, mages: a judge picks fighter A's playbook at phase boundaries while the rule casts")
+    ap.add_argument("--playbook-a", default=None, help="server mode, mages: fighter A runs this playbook throughout (no judge)")
     args = ap.parse_args(argv)
 
     a, b = parse(args.a), parse(args.b)
@@ -496,6 +512,16 @@ def main(argv: list[str] | None = None) -> int:
     for c in clients.values():
         if hasattr(c, "warmup"):
             c.warmup()
+    judge_a = None
+    if args.tactics_a != "none":
+        from .judge import QwenJudge, build_judge
+        judge_a = QwenJudge(clients["qwen"]) if args.tactics_a == "qwen" and "qwen" in clients else build_judge(args.tactics_a)
+        if hasattr(judge_a, "warmup"):
+            judge_a.warmup()
+    if args.playbook_a:
+        from .magic import PLAYBOOKS
+        if args.playbook_a not in PLAYBOOKS:
+            ap.error(f"--playbook-a must be one of {', '.join(PLAYBOOKS)}")
     speech = None
     if args.speech:
         from .speech import QwenSpeech
@@ -560,7 +586,8 @@ def main(argv: list[str] | None = None) -> int:
                         res = run_server_match(a, b, clients, args.rounds, token, args.pump_ms, args.log_dir,
                                                max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage,
                                                tag=f"m{n:03d}" + (f"r{replay}" if replay else ""), arena=args.arena, sync_a=args.sync_a,
-                                               a_challenges=not (args.alternate and n % 2 == 0), keepalive=gm_body)
+                                               a_challenges=not (args.alternate and n % 2 == 0), keepalive=gm_body,
+                                               judge_a=judge_a, playbook_a=args.playbook_a)
                         if res["state"] != "no-start":
                             break
                         print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
@@ -576,7 +603,8 @@ def main(argv: list[str] | None = None) -> int:
                     with open(f"{args.log_dir}/matches.jsonl", "a") as fh:
                         fh.write(json.dumps({"match": n, "replay": replay, "valid": not problems, "problems": problems,
                                              "a_challenged": not (args.alternate and n % 2 == 0), "a": a.persona.name, "a_backend": a.backend,
-                                             "b": b.persona.name, "b_backend": b.backend, "aim_a": aim_a, "state": res["state"],
+                                             "b": b.persona.name, "b_backend": b.backend, "aim_a": aim_a, "tactics_a": args.tactics_a,
+                                             "playbook_a": args.playbook_a, "state": res["state"],
                                              "seconds": res["seconds"], "rounds": res["rounds"], "duel_lines": res["duel_lines"],
                                              "wins_a": wins[a.persona.name], "wins_b": wins[b.persona.name], "draws": wins["draw"],
                                              "per": res["per"]}) + "\n")
@@ -584,6 +612,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{'match' if not problems else 'VOID '} {n:2d}/{args.matches}: {a.persona.name} {wins[a.persona.name]} - {wins[b.persona.name]} {b.persona.name} (draws {wins['draw']}) "
                           f"[{res['seconds']:.0f}s] | {a.persona.name} casts={pa['casts_ok']} fail={pa['cast_fail']} med={pa['meditations']} "
                           f"| {b.persona.name} casts={pb['casts_ok']} fail={pb['cast_fail']}", flush=True)
+                    if pa.get("tactics"):
+                        print(f"   tactics: {pa['tactics']}", flush=True)
                     if res.get("lost_lines"):
                         print(f"   (referee missed {res['lost_lines']} journal lines)", flush=True)
                     if not problems:

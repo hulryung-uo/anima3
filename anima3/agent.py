@@ -58,8 +58,9 @@ class Agent:
         decide_every: int = 4, plan_ticks: int = 4, threshold: float = 0.35, deadline_s: float = 1.5,
         pump_ms: int = 250, log_path: str | Path | None = None, sync: bool | None = None,
         economy: bool = False, proc_max_ticks: int = 60, triage=None, speech=None,
-        reflect_every: int = 150, chronicle_path: str | Path | None = None,
+        reflect_every: int = 150, chronicle_path: str | Path | None = None, tactician=None,
     ) -> None:
+        self.tactician = tactician   # the duel's slow layer: sets memory["playbook"] at phase boundaries
         self.reflect_every = reflect_every
         self.chronicle_path = Path(chronicle_path) if chronicle_path else None
         self.aim: str | None = None
@@ -162,6 +163,8 @@ class Agent:
             self.memory.setdefault("my_corpses", set()).update(obs.corpse_of)
         self._learn_names(obs)
         f = facts(obs)
+        if self.tactician is not None and not f.dead:
+            self.tactician.tick(self, obs, f)   # before the menu, and even while a cast owns the tick
         # An active procedure owns the tick unless danger interrupts it.
         if self._proc is not None:
             pid, gen, started = self._proc

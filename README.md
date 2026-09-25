@@ -41,7 +41,7 @@ Everything here follows from tests run before a line of anima3 was written
 
 ```bash
 uv venv --python 3.12 && uv pip install -e ".[qwen,jeff,dev]"
-uv run pytest -q                                   # 17 tests, no server
+uv run pytest -q                                   # 77 tests, no server
 
 # offline pocket world (FakeBody), local model:
 uv run python -m anima3 --offline hostile --backend qwen --persona adventurer
@@ -72,7 +72,7 @@ The model path defaults to `~/dev/jev/models/Qwen3-4B-4bit` (`ANIMA3_MLX_MODEL` 
 Low-confidence picks (0.00 / 0.12 / 0.24) were rejected by the gate and the rule
 acted instead. Decision latency 105–182 ms, mean ≈ 130 ms, warmup ≈ 1–2.5 s.
 
-**Live, ServUO 127.0.0.1:2593, bridge schema 31**: login, observe, act, pump and
+**Live, ServUO 127.0.0.1:2593, bridge schema 31 (now 32)**: login, observe, act, pump and
 the spectator monitor all work with both backends; terrain reading forced a
 direction change at a wall (walk north → walk east). Model decisions on the shard:
 10/10 admitted, 117 ms mean. See *Live fight* below.
@@ -460,48 +460,98 @@ Watch any of them with anima-client's own renderer, one spectator per ring:
 
 | File | Role |
 |---|---|
-| `contract.py` | typed views over the bridge JSON (schema 31) + action builders |
+| `contract.py` | typed views over the bridge JSON (schema 32) + action builders |
 | `body.py` | `BridgeBody` (NDJSON subprocess, monitor) · `FakeBody` (offline world) |
 | `scene.py` | Observation → text scene + derived `Facts` |
 | `affordances.py` | the closed verb menu, rule-ordered, hard limits |
 | `decision.py` | `Scripted` · `QwenLogprob` (MLX) · `JeffChoice` · `gate()` |
+| `judge.py` | typed System One questions (Choice / Noul / Score), several per call: `JevJudge` · `QwenJudge` · `RandomJudge` · off-thread `Asker` with a JSONL log |
+| `tactics.py` | the duel's slow layer: a judge picks the rule's playbook at phase boundaries |
 | `agent.py` | two-rate loop, off-thread decisions, plans, JSONL log |
 | `gm.py` | GM staging over the same bridge |
 | `personas/` | YAML personas: miner Grimm, adventurer Anima, warrior Ragnar |
 | `progression.py` | skills, profession GM sets, curriculum ordering |
-| `triage.py` · `speech.py` | Laya speech triage · generated replies, aims, chronicle |
+| `triage.py` · `speech.py` | Laya or Jev speech triage and in-character screen · generated replies, aims, chronicle |
 | `village.py` | several characters, one process, GM staging/resurrection |
 | `duel.py` | refereed PvP: 5x/7x templates, weapon/armour/magic rules, per-side backends, fourteen rings |
-| `magic.py` | the spell table, cast procedure and the mage's closed menu |
+| `magic.py` | the spell table, cast procedure, the five playbooks and the mage's closed menu |
 | `learn.py` | the between-match playbook: the slow layer rewrites the standing tactic |
 | `calibrate.py` | outcome-labelled temperature scaling over the decision logs |
 | `stats.py` · `report.py` | Wilson intervals, binomial and two-proportion tests · per-arm experiment summary |
 | `experiments/` | the arm launcher and watcher used for experiments 2 and 3 |
 
+## Experiment 4: the judge picks the playbook, the rule casts
+
+Experiment 3 said where the model does not belong (every tick) and where it might (phase
+boundaries). This is that design:
+
+- **Five playbooks** (`magic.PLAYBOOKS`): `standard` (the hand rule of experiments 1-3,
+  unchanged), `control` (paralyze, then Explosion and Energy Bolt on the frozen target),
+  `poison` (poison, then quick spells so it cannot cure), `interrupt` (cheap fast spells that
+  break the opponent's cast) and `sustain` (heal under 80%, reflection up). Each is just a
+  spell order the rule executes. None is obviously right, which is the point: until the rule
+  has rivals, "beats the rule" sits near 50% by construction.
+- **The opponent can now be seen.** Bridge schema 32 carries each mobile's `poisoned`,
+  `paralyzed`, `war_mode`, `hidden`, `running` and `direction`. anima-client's core had
+  tracked all of them for the renderer, but the brain saw only hits. The opponent's power
+  words ("Corp Por") are read from the journal as spells.
+- **A judge, not a head** (`judge.py`, `tactics.py`). At a boundary it is asked two typed
+  questions about one narrative state, in one call: which playbook (Choice) and who is
+  winning (Score, logged as a label to check against the round's result). Boundaries are:
+  the bell, your health or the opponent's crossing half, the opponent paralyzed or poisoned,
+  your mana under 40%, or 30 ticks passing. It runs off-thread and the rule keeps casting the
+  current playbook meanwhile, so thinking costs no tempo, and a slow API costs nothing but
+  staleness. An answer from the previous round is never applied, and an unsure one
+  (margin < 0.15) leaves the playbook alone.
+- **Controls:** `--tactics-a random` (a judge that cannot judge) and `--playbook-a <name>` (one
+  playbook held all match). If no fixed playbook differs from `standard`, choosing among them
+  cannot help either.
+
+```bash
+export EXP=exp4
+experiments/run_arm.sh rule    1 anima3gm3 scripted 3
+experiments/run_arm.sh jev     2 anima3gm4 scripted 4 --tactics-a jev
+experiments/run_arm.sh random  3 anima3gm6 scripted 5 --tactics-a random
+experiments/run_arm.sh control 4 anima3gm7 scripted 6 --playbook-a control
+python -m anima3.report .logs/exp4 --baseline rule      # adds match-level p and the judge's playbook mix
+```
+
+On hand-written probe states, Jev chose `control` at a 0.77 probability when the opponent
+was paralyzed at 38%. It chose `standard` over `sustain` when this mage was poisoned at 34%,
+and read momentum correctly both ways (1.98 and 0.01 on a 0-2 scale). Measured at about
+210-640 ms per two-question call.
+
+A live smoke run (Jev picking A's playbook against the rule, 2 matches, best of 3) ran clean: 3-2
+in rounds, 57 judge calls, median 230 ms, none late, none failed. The new `paralyzed` flag drove
+the boundaries. The opponent's frozen flag flickers with each update (25 rising edges in one
+match), so a boundary is now not news again for 15 ticks. Jev chose `control` in 45 of 48
+applied answers. Whether that reads the state or the wording of the playbook's description (the
+bias anima2's name-only steering showed) is what the `random` and `--playbook-a control` arms
+separate.
+
+The same judge replaces Laya as the village's in-character screen (`--triage jev`). "As an
+AI I can't walk to the forge" scores 0.99, "I cannot afford a new pickaxe" 0.09, and "Aye,
+the vein runs deep" 0.04.
+
+`anima3.report` now also tests arms against the baseline by shuffling whole matches.
+Failures cluster per match (a slow API, a reconnecting bridge), so a round-level p overstates
+the evidence. Experiment 3's Qwen result survives it (p = 0.0003), and Jev vs rule stays at
+p = 0.53.
+
 ## Next
 
-1. **Top up experiment 3 to 40 matches per arm** (`experiments/run_arm.sh <arm>-b ... --matches N`;
-   the report merges `<arm>-b` into `<arm>`). Qwen's result is already settled; Jev vs rule needs
-   more rounds.
-2. **Make every match check itself.** Every failure above was found by hand. Before each match,
-   check staff access, the spellbook and all eight reagents, and the pack weight. After it, if a
-   side never cast a bolt or a heal, a round had no attacks, or a bridge reconnected mid-round,
-   mark the match invalid and replay it.
-3. **Put the model where magnitudes matter, not where reflexes do.** In a 5x mage duel the
-   rule's order (heal under half, else the heaviest bolt the mana allows) is close to optimal,
-   and a head can only lose tempo by deviating. Jev's measured strength is judging magnitudes
-   (14/14 on the probes where the open imitations scored 6/14). Ask it at phase boundaries:
-   which playbook this round, whether to trade mana for damage, when to reset. Let a rule or
-   a learned reflex execute each tick. The same layering fits the village: which skill to
-   train next, when to sell, whether a hunt is worth it.
-4. **Give the duel choices that have no obvious right answer.** Paralyze → Explosion → Energy
-   Bolt combos, holding a precast spell, poison pressure, mana drain, line-of-sight in the large
-   and corridor rings. Until the rule has real rivals, "beats the rule" stays near 50% by
-   construction.
-5. **Train on outcomes.** Experiments 1-3 logged over 100k decision ticks with scenes, options
-   and round results. A small head that predicts P(win round | scene, action), trained on those
-   logs, is the real System One step; logprob confidence has been measured to predict nothing
-   (ECE 0.585).
-6. **Cheaper runs.** Jev and rule arms need no GPU, so ten can share the fourteen rings. Swap,
-   not CPU, is the limit. Pair each head against its mirror (swap sides between matches) to cut
-   the rounds needed.
+1. **Run experiment 4** with the arms above at 40 matches each. Fix the void rules before the
+   run, and compare arms at the match level.
+2. **Put the judge on the village's boundaries** the same way: which skill to train next, when
+   to sell, whether a hunt is worth it. `docs/JEV.md` in anima2 has the equivalent plan for
+   anima2 (steering with state, a Jev in-character screen, a chat gate, encounter scores).
+3. **Train on outcomes.** Every judge call is logged as (state, answers, context), and the
+   momentum Score can be checked against the round result. A small head that predicts
+   P(win round | state, playbook) from these logs is the real System One step. Logprob
+   confidence has been measured to predict nothing (ECE 0.585).
+4. **Cheaper runs.** Jev and rule arms need no GPU, so ten can share the fourteen rings. Swap,
+   not CPU, is the limit.
+
+Done since the last list: every match validates itself (staff preflight; frozen side,
+reconnect, castless mage, short staging, slow model → void and replay), and experiment 3 was
+stopped at 17-27 valid matches per arm. Its result is settled for Qwen and inconclusive for Jev.

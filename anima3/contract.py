@@ -1,6 +1,6 @@
 """Typed views over the anima-client Observation JSON, and Action JSON builders.
 
-Field names mirror `anima-contract-json` (schema 31) verbatim. Only what this
+Field names mirror `anima-contract-json` (schema 32) verbatim. Only what this
 brain reads is modelled; unknown keys are ignored so additive schema bumps are
 harmless. Actions are plain dicts of exactly the shape `action_from_json` parses.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 
 #: UO direction numbering, as `Walk{dir}` expects. Index -> (dx, dy).
 DIRECTION_DELTAS: list[tuple[int, int]] = [
@@ -100,6 +100,11 @@ class Mobile:
     hits: int
     hits_max: int
     distance: int
+    # What any client shows of another mobile's condition (schema 32).
+    poisoned: bool = False
+    paralyzed: bool = False
+    war_mode: bool = False
+    hidden: bool = False
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Mobile:
@@ -108,6 +113,8 @@ class Mobile:
             pos=Pos.from_json(d.get("pos")), body=int(d.get("body", 0)),
             notoriety=int(d.get("notoriety", 0)), hits=int(d.get("hits", 0)),
             hits_max=int(d.get("hits_max", 0)), distance=int(d.get("distance", 0)),
+            poisoned=bool(d.get("poisoned", False)), paralyzed=bool(d.get("paralyzed", False)),
+            war_mode=bool(d.get("war_mode", False)), hidden=bool(d.get("hidden", False)),
         )
 
     @property

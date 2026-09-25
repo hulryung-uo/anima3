@@ -16,7 +16,7 @@ import json
 import os
 import re
 
-from .stats import binom_two_sided, two_proportions, wilson
+from .stats import binom_two_sided, match_perm_p, two_proportions, wilson
 
 MATCH = re.compile(r"^match +(\d+)/\d+: \S+ (\d+) - (\d+) \S+ \(draws (\d+)\)")
 
@@ -93,7 +93,7 @@ def decisions(arm_dir: str) -> dict:
     return {"n": n, "reasons": dict(reasons), "deviated": dev}
 
 
-def line(name: str, w: int, l: int, base: tuple[int, int] | None) -> str:
+def line(name: str, w: int, l: int, base: tuple[int, int] | None, per_match=None, base_matches=None) -> str:
     n = w + l
     if not n:
         return f"  {name:<22} no decided rounds"
@@ -101,7 +101,31 @@ def line(name: str, w: int, l: int, base: tuple[int, int] | None) -> str:
     s = f"  {name:<22} {w:3d}-{l:<3d} {w / n:6.1%}  CI {lo:5.1%}-{hi:5.1%}  p(coin)={binom_two_sided(w, n):.3f}"
     if base and sum(base):
         s += f"  p(vs base)={two_proportions(w, n, base[0], sum(base)):.3f}"
+        if per_match and base_matches:
+            s += f"  p(matches vs base)={match_perm_p(per_match, base_matches):.3f}"
     return s
+
+
+def tactics(arm_dir: str) -> dict | None:
+    """Which playbooks fighter A's judge chose, and how fast it answered, over the valid matches."""
+    path = f"{arm_dir}/matches.jsonl"
+    if not os.path.exists(path):
+        return None
+    books, asks, applied, late, ms = collections.Counter(), 0, 0, 0, []
+    with open(path) as fh:
+        for x in fh:
+            r = json.loads(x)
+            t = r.get("per", {}).get(r.get("a"), {}).get("tactics")
+            if not t or not r.get("valid"):
+                continue
+            books.update(t.get("playbooks", {}))
+            asks, applied, late = asks + t.get("asks", 0), applied + t.get("applied", 0), late + t.get("late", 0)
+            if t.get("ms"):
+                ms.append(t["ms"])
+    if not asks:
+        return None
+    return {"asks": asks, "applied": applied, "late": late, "playbooks": dict(books.most_common()),
+            "ms": sorted(ms)[len(ms) // 2] if ms else None}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,15 +156,23 @@ def main(argv: list[str] | None = None) -> int:
     for clean in (False, True):
         print("\nmatches without a bridge reconnect only:" if clean else "all matches:")
         base = tally(data.get(args.baseline, []), clean)[:2] if args.baseline in data else None
+        def pairs(ms, clean=clean):
+            return [(m["w"], m["l"]) for m in ms if not (clean and m["recon"])]
         for a in arms:
             w, l, k = tally(data[a], clean)
-            print(line(f"{a} ({k} matches)", w, l, None if a == args.baseline else base))
+            print(line(f"{a} ({k} matches)", w, l, None if a == args.baseline else base,
+                       pairs(data[a]), pairs(data.get(args.baseline, []))))
     print("\nfighter A's multi-option decisions:")
     for a in arms:
         d = decisions(f"{args.dir}/{a}")
         if d["n"]:
             parts = ", ".join(f"{k} {v / d['n']:.0%}" for k, v in sorted(d["reasons"].items(), key=lambda kv: -kv[1]))
             print(f"  {a:<10} {d['n']:5d} ticks: {parts}; model differed from the rule {d['deviated']}x")
+    tt = {a: t for a in arms if (t := tactics(f"{args.dir}/{a}"))}
+    if tt:
+        print("\nfighter A's playbook judge (valid matches):")
+        for a, t in tt.items():
+            print(f"  {a:<10} asked {t['asks']}, applied {t['applied']}, late {t['late']}, median {t['ms'] or 0:.0f} ms: {t['playbooks']}")
     return 0
 
 

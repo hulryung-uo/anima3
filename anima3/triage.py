@@ -2,7 +2,8 @@
 
 Laya (a 421M encoder, ~40 ms) classifies the *topic* of a heard line — the one
 thing the encoder class measured well. Without Laya installed a keyword fallback
-keeps the social verbs alive. "Addressed to me" is a heuristic on purpose: the
+keeps the social verbs alive, and `JevTriage` (cloud) is the one measured to tell an
+in-character line from an assistant's (14/14). "Addressed to me" is a heuristic on purpose: the
 encoder's yes/no head was yes-biased in our probes, and a name or a second-person
 pronoun within four tiles is a better signal than a probability.
 """
@@ -86,7 +87,33 @@ class LayaTriage:
         return float(a["noul"])
 
 
+class JevTriage:
+    """TypeSafe's Jev behind the same two calls. On the fourteen-line "did this break character?"
+    probe Jev scored 14/14 (true 0.94-0.99, false 0.03-0.09), where Laya and jeff scored 6/14 and
+    the keyword matcher tripped on "I cannot afford a new pickaxe". ~250 ms, off the fast path."""
+
+    name = "jev"
+
+    def __init__(self, judge=None) -> None:
+        from .judge import JevJudge
+        self._judge = judge or JevJudge()
+
+    def classify(self, text: str) -> Triage:
+        from .judge import Choice
+        v = self._judge.ask(text, {"k": Choice("What kind of utterance is this, said by a person in a medieval fantasy game?", KINDS)})
+        a = v.answers["k"]
+        return Triage(str(a.value), a.confidence, a.probs, self.name)
+
+    def ai_voice(self, text: str) -> float:
+        from .judge import Noul
+        v = self._judge.ask(text, {"b": Noul(AI_VOICE_Q, {"true": "speaks as an AI/assistant/model, or refuses in assistant voice",
+                                                          "false": "stays in character as a person in the game world"})})
+        return float(v.answers["b"].value)
+
+
 def build_triage(kind: str = "auto"):
+    if kind == "jev":
+        return JevTriage()
     if kind in ("laya", "auto"):
         try:
             import laya  # noqa: F401
