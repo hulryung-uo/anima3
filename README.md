@@ -539,10 +539,45 @@ Failures cluster per match (a slow API, a reconnecting bridge), so a round-level
 the evidence. Experiment 3's Qwen result survives it (p = 0.0003), and Jev vs rule stays at
 p = 0.53.
 
+### Experiment 4 results (uo.hulryung.com, 40 matches per arm, all at once)
+
+The hosted shard, four arms in parallel, 12 bridges from one address (the shard's
+`IPLimiter` allowed 10; it now reads `MaxAddressesPerIP` from `Server.cfg`):
+
+| arm (fighter A) | rounds | A's share, 95% CI | vs rule baseline (match-level p) |
+|---|---|---|---|
+| rule (baseline) | 67 – 94 | 41.6% (34–49%) | — |
+| random playbook at each boundary | 88 – 82 | **51.8%** (44–59%) | 0.064 |
+| **Jev picks the playbook** | 35 – 116 | **23.2%** (17–31%) | **0.001** |
+| `control` held all match | 32 – 111 | 22.4% (16–30%) | **0.001** |
+
+- **Jev's choice made the rule worse.** 1349 of its 1547 applied answers were `control`, and
+  the Jev arm scored what the `control` arm scored. It was not reading the fight. It kept
+  answering the option whose description sounds most decisive ("paralyze, then land
+  Explosion and Energy Bolt…"), the same wording pull anima2's name-only steering showed.
+- **`control` is the worst playbook here.** Paralyze spends a cast of tempo, and the frozen
+  target is not frozen for long. In the random arm, by the playbook drawn at the bell:
+  `sustain` 74% (23/31), `interrupt` 51%, `poison` 50%, `standard` 45%, `control` 38% (9/24).
+  These are small cells, but the ordering is the lesson: the judge picked the worst option
+  nearly every time.
+- **Mixing playbooks at random beats the fixed rule by ten points** (p = 0.064, not yet
+  proven). The rule opponent handles one predictable order better than a changing one.
+- The rule-vs-rule baseline sat at 29% for its first nine matches and ended at 41.6%. Skills
+  and stats were checked identical and the challenger did not predict it. Arms are compared
+  with the baseline, never with a coin, so this does not move the conclusions.
+
+What the run taught the infrastructure: the staff bridges were dropped for "inactivity" every
+few minutes. `Session::observe(0)` never pumped, so the keepalive `pump(0)` sent no ping, and
+the false "staging short" voids (the dead bridge counted an empty pack) were its only
+symptom. Fixed in anima-client; once the bridges picked up the fix, there were no drops in the
+remaining two and a half hours.
+
 ## Next
 
-1. **Run experiment 4** with the arms above at 40 matches each. Fix the void rules before the
-   run, and compare arms at the match level.
+1. **Check the wording pull**: give the playbooks descriptions of one neutral shape, shuffle
+   their order on every call, and rerun Jev against a fresh rule baseline. If Jev still
+   answers one playbook, its choice is not reading the state. Then hold `sustain` all match
+   to see whether its 74% is real.
 2. **Put the judge on the village's boundaries** the same way: which skill to train next, when
    to sell, whether a hunt is worth it. `docs/JEV.md` in anima2 has the equivalent plan for
    anima2 (steering with state, a Jev in-character screen, a chat gate, encounter scores).
