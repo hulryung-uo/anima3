@@ -155,3 +155,27 @@ def test_a_flickering_flag_is_not_news_every_time():
         t.tick(_agent(mem), *_world(paralyzed=frozen))
         _wait(t.asker)
     assert t.boundaries == {"round": 1, "opp_paralyzed": 2}     # at 20 and again at 36, not at 26
+
+
+def test_neutral_wording_is_one_shape_in_a_fresh_order():
+    import random
+
+    from anima3.magic import PLAYBOOKS_NEUTRAL
+    from anima3.tactics import PLAYBOOK_Q, playbook_question
+    assert playbook_question("vivid") is PLAYBOOK_Q
+    assert all(d.startswith("Order: Greater Heal below") for d in PLAYBOOKS_NEUTRAL.values())
+    assert set(PLAYBOOKS_NEUTRAL) == set(PLAYBOOK_Q.criteria)
+    rng = random.Random(1)
+    orders = {tuple(playbook_question("neutral", rng).criteria) for _ in range(20)}
+    assert len(orders) > 5                                  # the order moves call to call
+
+
+def test_the_tactician_logs_the_order_it_asked_in():
+    judge = _Instant("sustain")
+    t = Tactician(Asker(judge), wording="neutral", seed=3)
+    mem = {"tick": 10, "duel_opponent": 2, "duel_round": 1}
+    t.tick(_agent(mem), *_world())
+    _wait(t.asker)
+    mem["tick"] = 11
+    t.tick(_agent(mem), *_world())
+    assert mem["playbook"] == "sustain"

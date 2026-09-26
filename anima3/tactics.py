@@ -11,13 +11,26 @@ While it thinks the rule keeps running the last playbook, so thinking costs no t
 
 from __future__ import annotations
 
-from .judge import Asker, Choice, Score
-from .magic import PLAYBOOKS, WORDS
+import random
 
-PLAYBOOK_Q = Choice(
-    instructions=("Which playbook should this mage follow for the next several seconds of the duel? "
-                  "Weigh both fighters' health, mana, poison and paralysis, and what the opponent has been casting."),
-    criteria=PLAYBOOKS)
+from .judge import Asker, Choice, Score
+from .magic import PLAYBOOKS, PLAYBOOKS_NEUTRAL, WORDS
+
+PLAYBOOK_INSTRUCTIONS = ("Which playbook should this mage follow for the next several seconds of the duel? "
+                         "Weigh both fighters' health, mana, poison and paralysis, and what the opponent has been casting.")
+PLAYBOOK_Q = Choice(instructions=PLAYBOOK_INSTRUCTIONS, criteria=PLAYBOOKS)
+
+
+def playbook_question(wording: str = "vivid", rng: random.Random | None = None) -> Choice:
+    """The playbook Choice. `vivid` is experiment 4's question as asked. `neutral` uses one
+    plain shape for every option and, with an `rng`, a fresh option order on every call, so
+    neither a description's pull nor its position in the list can pick the answer."""
+    if wording == "vivid":
+        return PLAYBOOK_Q
+    keys = list(PLAYBOOKS_NEUTRAL)
+    if rng is not None:
+        rng.shuffle(keys)
+    return Choice(instructions=PLAYBOOK_INSTRUCTIONS, criteria={k: PLAYBOOKS_NEUTRAL[k] for k in keys})
 MOMENTUM_Q = Score(
     instructions="Who is winning this round right now?",
     criteria=["the opponent is clearly winning", "the round is even", "this mage is clearly winning"])
@@ -32,7 +45,9 @@ class Tactician:
     landed answer to `memory["playbook"]` and, at a boundary, asks the next question."""
 
     def __init__(self, asker: Asker, *, every_ticks: int = 30, min_gap: int = 4, threshold: float = 0.15,
-                 same_gap: int = 15) -> None:
+                 same_gap: int = 15, wording: str = "vivid", seed: int | None = None) -> None:
+        self.wording = wording
+        self._rng = random.Random(seed) if wording == "neutral" else None
         self.asker, self.every_ticks, self.min_gap, self.threshold = asker, every_ticks, min_gap, threshold
         # A paralysed opponent's frozen flag flickers with every update the shard sends (live: 25
         # rising edges in one 137 s match); the same boundary is not news again for `same_gap` ticks.
@@ -126,7 +141,9 @@ class Tactician:
         ctx = {"tick": tick, "boundary": boundary, "opp": opp_serial, "round": memory.get("duel_round"),
                "hp": round(f.hp_pct, 3), "opp_hp": round(opp.hits / opp.hits_max, 3) if opp.hits_max else None,
                "mana": obs.player.mana, "playbook": memory.get("playbook", "standard")}
-        if self.asker.ask(boundary, st, {"playbook": PLAYBOOK_Q, "momentum": MOMENTUM_Q}, ctx):
+        q = playbook_question(self.wording, self._rng)
+        ctx["order"] = list(q.criteria)
+        if self.asker.ask(boundary, st, {"playbook": q, "momentum": MOMENTUM_Q}, ctx):
             self._last_ask = self._asked[boundary] = tick
             self.boundaries[boundary] = self.boundaries.get(boundary, 0) + 1
 

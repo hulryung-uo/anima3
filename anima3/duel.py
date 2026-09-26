@@ -398,14 +398,15 @@ def validate_match(res: dict, reconnects: dict[str, int], mage: bool = False, mi
 def run_server_match(a: Fighter, b: Fighter, clients: dict, rounds: int, rules_token: str, pump_ms: int, log_dir: str, max_ticks: int,
                      aims: tuple[str | None, str | None] = (None, None), mage: bool = False, tag: str = "server", arena: int = 0,
                      start_timeout_s: float = 120.0, sync_a: bool = False, a_challenges: bool = True,
-                     keepalive=None, judge_a=None, playbook_a: str | None = None) -> dict:
+                     keepalive=None, judge_a=None, playbook_a: str | None = None, wording: str = "vivid") -> dict:
     for fx, aim in zip((a, b), aims):
         sync = True if (sync_a and fx is a) else None      # None: the agent's default (async for a model)
         tactician = None
         if fx is a and judge_a is not None:
             from .judge import Asker
             from .tactics import Tactician
-            tactician = Tactician(Asker(judge_a, log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}-judge.jsonl"))
+            tactician = Tactician(Asker(judge_a, log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}-judge.jsonl"),
+                                  wording=wording)
         fx.agent = Agent(fx.body, fx.persona, clients[fx.backend], decide_every=2, pump_ms=pump_ms, sync=sync,
                          log_path=f"{log_dir}/{tag}-{fx.persona.name.lower()}.jsonl", triage=None, reflect_every=0,
                          tactician=tactician)
@@ -498,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tactics-a", choices=["none", "jev", "qwen", "random"], default="none",
                     help="server mode, mages: a judge picks fighter A's playbook at phase boundaries while the rule casts")
     ap.add_argument("--playbook-a", default=None, help="server mode, mages: fighter A runs this playbook throughout (no judge)")
+    ap.add_argument("--tactics-wording", choices=["vivid", "neutral"], default="vivid",
+                    help="how the playbooks are described to the judge: experiment 4's descriptions, or one plain shape in a shuffled order")
     args = ap.parse_args(argv)
 
     a, b = parse(args.a), parse(args.b)
@@ -587,7 +590,7 @@ def main(argv: list[str] | None = None) -> int:
                                                max_ticks=args.max_ticks * args.rounds + 200, aims=(aim_a, args.aim_b), mage=mage,
                                                tag=f"m{n:03d}" + (f"r{replay}" if replay else ""), arena=args.arena, sync_a=args.sync_a,
                                                a_challenges=not (args.alternate and n % 2 == 0), keepalive=gm_body,
-                                               judge_a=judge_a, playbook_a=args.playbook_a)
+                                               judge_a=judge_a, playbook_a=args.playbook_a, wording=args.tactics_wording)
                         if res["state"] != "no-start":
                             break
                         print(f"   (match {n} never started, attempt {attempt + 1}; last line: {res['duel_lines'][-1:]}) — retrying", flush=True)
@@ -603,7 +606,7 @@ def main(argv: list[str] | None = None) -> int:
                     with open(f"{args.log_dir}/matches.jsonl", "a") as fh:
                         fh.write(json.dumps({"match": n, "replay": replay, "valid": not problems, "problems": problems,
                                              "a_challenged": not (args.alternate and n % 2 == 0), "a": a.persona.name, "a_backend": a.backend,
-                                             "b": b.persona.name, "b_backend": b.backend, "aim_a": aim_a, "tactics_a": args.tactics_a,
+                                             "b": b.persona.name, "b_backend": b.backend, "aim_a": aim_a, "tactics_a": args.tactics_a, "tactics_wording": args.tactics_wording,
                                              "playbook_a": args.playbook_a, "state": res["state"],
                                              "seconds": res["seconds"], "rounds": res["rounds"], "duel_lines": res["duel_lines"],
                                              "wins_a": wins[a.persona.name], "wins_b": wins[b.persona.name], "draws": wins["draw"],

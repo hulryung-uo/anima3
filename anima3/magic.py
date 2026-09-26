@@ -131,6 +131,16 @@ PLAYBOOKS: dict[str, str] = {
     "interrupt": "Chain quick, cheap spells (Magic Arrow, Harm, Lightning) to disrupt the opponent's casting; mana-thrifty.",
     "sustain": "Stay healthy: heal below four fifths, cure at once, keep Magic Reflection up; attack in between.",
 }
+#: The same five spell orders in one neutral shape: each says only what `spell_order` casts, in
+#: the same words. Experiment 4's vivid descriptions drew Jev to `control` 87% of the time
+#: ("paralyze, then land Explosion…" reads as the decisive option) — the worst playbook there.
+PLAYBOOKS_NEUTRAL: dict[str, str] = {
+    "standard": "Order: Greater Heal below 50% health, Cure when poisoned, then Energy Bolt, Explosion, Lightning, Fireball, Harm, Magic Arrow.",
+    "control": "Order: Greater Heal below 40% health, Paralyze, and while the opponent is paralyzed Explosion and Energy Bolt, then Lightning, Fireball, Harm, Magic Arrow.",
+    "poison": "Order: Greater Heal below 40% health, Poison while the opponent is not poisoned, then Harm, Magic Arrow, Lightning, Energy Bolt, Explosion.",
+    "interrupt": "Order: Greater Heal below 40% health, then Magic Arrow, Harm, Lightning, Fireball, Energy Bolt, Explosion.",
+    "sustain": "Order: Greater Heal below 80% health, Cure when poisoned, Magic Reflection when due, then Energy Bolt, Explosion, Lightning, Fireball, Harm, Magic Arrow.",
+}
 _HEAVY = ("energy_bolt", "explosion", "lightning", "fireball", "harm", "magic_arrow")
 _QUICK = ("magic_arrow", "harm", "lightning", "fireball", "energy_bolt", "explosion")
 
